@@ -164,6 +164,9 @@ function Nav() {
       <Link href="/questions" style={link}>
         Questions
       </Link>
+      <Link href="/sources" style={link}>
+        Sources
+      </Link>
       <Link href="/notifications" style={link}>
         Notificações{unread > 0 ? ` (${unread})` : ""}
       </Link>
