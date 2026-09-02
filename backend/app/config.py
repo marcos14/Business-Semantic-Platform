@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +12,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-me"
     jwt_ttl_hours: int = 24
     openrouter_api_key: str = ""
+    # Repositório git dedicado do conhecimento canônico (D3); env: CANONICAL_REPO_PATH
+    canonical_repo_path: str = str(Path(__file__).resolve().parents[2] / "canonical-repo")
 
 
 settings = Settings()

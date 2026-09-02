@@ -14,7 +14,11 @@ dependencies = [
     "procrastinate>=3.0",
     "pwdlib[argon2]>=0.2",
     "pyjwt>=2.8",
+    "pyyaml>=6.0",
 ]
+
+[project.scripts]
+semantic = "app.cli:main"
 
 [build-system]
 requires = ["hatchling"]

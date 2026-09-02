@@ -51,22 +51,22 @@ Entregáveis:
 
 ---
 
-## Fase 2 — Confidence, Policy e Canonical (tamanho M — antecipa o M3)
+## Fase 2 — Confidence, Policy e Canonical (tamanho M — antecipa o M3) ✅ concluída em 2026-09-02
 
 **Objetivo:** roteamento automático explicável + publicação canônica versionada.
 
 Entregáveis:
 
-- [ ] `confidence_signals` (sinais do §28 como fatos) + heurística de independência de evidence por linhagem (§29).
-- [ ] Score = função pura **versionada**, gravado com breakdown (§30) — nunca só o número.
-- [ ] `policies` como dados (threshold, `human_review_required`, mín. reviewers, owner) + resolução na precedência §32; políticas por risk (§34–35).
-- [ ] Roteamento puro (§31, §86): **AC-CONF-01, AC-CONF-02, AC-CONF-03 como testes de tabela.**
-- [ ] Auto-approval com audit completo (§87: confidence, threshold, evidence, policy, versões de agente, timestamp).
-- [ ] Serializer YAML determinístico (chaves ordenadas, 1 atom/arquivo, `domain/capability/kind/`) + export Git com escritor único no worker.
-- [ ] CLI `semantic compile` validando o canonical-repo de forma independente (§59).
-- [ ] Versionamento canonical + supersession (**AC-CAN-01, AC-CAN-02**) (§71–72).
+- [x] Confidence Engine v1 puro e versionado (`app/kernel/confidence.py`): os 12 sinais do §28 no breakdown (neutros declarados), independência por linhagem de origem (§29), penalidade por contradição; scores e sinais persistidos **append-only** (`confidence_scores` + `confidence_signals`).
+- [x] Explicabilidade §30: breakdown por sinal com contribuição e explicação em `GET /knowledge/{id}/confidence`; formato "+/−" do PRD.
+- [x] Policy Engine (`app/kernel/policy.py` + tabela `policies` + CRUD em `/admin/policies`): resolução campo a campo com precedência risk > capability > atom_kind > domain > global (§32) e **proveniência** de cada campo efetivo; default 90% (§31).
+- [x] Roteamento puro §86 com os 5 checks (política obrigatória, risk crítico, conflito, validação semântica via linter, threshold): **AC-CONF-01/02/03 verdes como testes de tabela** e também via API.
+- [x] Auto-approval com audit §87: evento `DecisionMade` com confidence, threshold+proveniência, evidence ids, engine_version, checks; caminho §99 completo (READY → AUTO_APPROVED → CANONICAL sem humano).
+- [x] Serializer YAML determinístico (ordem fixa do envelope, 1 atom/arquivo em `domain/capability/kind/`) + exporter **reconciliador idempotente** com escritor único (queueing lock no Procrastinate); defer pós-commit em toda canonicalização.
+- [x] CLI `semantic compile` (`uv run semantic compile`) validando o repo independente do banco (§59, §93): schema + registry + linter + métricas.
+- [x] Versionamento canonical (`new-version`: v1→v2 no mesmo id, **AC-CAN-01/02**) + supersession por outro atom (SUPERSEDED + relação SUPERSEDES, §72); edição direta de canonical bloqueada (§123).
 
-**Critério de saída:** candidate sintético com sinais → auto-approve ou routing para humano conforme política; atom canonical aparece comitado no `canonical-repo` e `semantic compile` passa; recalcular score não reescreve histórico.
+**Critério de saída verificado:** 81/81 testes verdes; smoke ao vivo nos containers — candidate com 4 evidências independentes → `score=0.93` → `AUTO_APPROVED` → `CANONICAL` → worker comitou `FINANCE.ACCOUNTS-RECEIVABLE.RULE.0001.yaml` no canonical-repo (commit "Export canonical: 1 atom(s) [auto-approval:…]") → `semantic compile` OK; reavaliação gera novo score sem apagar o anterior.
 
 ---
 

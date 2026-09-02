@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth.deps import get_current_user
 from app.db import get_db
+from app.jobs import defer_export
 from app.kernel import lifecycle
 from app.kernel.errors import NotFoundError
 from app.kernel.ir.envelope import (
@@ -25,6 +26,7 @@ from app.kernel.linter import lint_db
 from app.models.auth import Role, User
 from app.models.knowledge import KnowledgeAtom
 from app.rbac.deps import ensure_scope_role
+from app.services import evaluation
 from app.services import knowledge as svc
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -78,6 +80,24 @@ class StatusIn(BaseModel):
 class RelationIn(BaseModel):
     to_atom: str
     type: RelationType
+
+
+class NewVersionIn(BaseModel):
+    expected_lock_version: int
+    reason: str = Field(min_length=1)
+    title: str | None = None
+    description: str | None = None
+    classification: Classification | None = None
+    risk: RiskLevel | None = None
+    scope: dict | None = None
+    effective: dict | None = None
+    body: dict | None = None
+
+
+class SupersedeIn(BaseModel):
+    by: str  # id do atom canonical substituto
+    reason: str = Field(min_length=1)
+    expected_lock_version: int
 
 
 def _atom_out(atom: KnowledgeAtom) -> dict:
@@ -245,6 +265,8 @@ def change_status(
         authority_granted=authority,
     )
     db.commit()
+    if authority:  # entrou/saiu do canonical space → sincroniza o repo git
+        defer_export(trigger=f"status:{atom.id}")
     return _atom_out(atom)
 
 
@@ -316,3 +338,75 @@ def history(
     atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
 ) -> dict:
     return svc.atom_history(db, atom_id)
+
+
+@router.post("/{atom_id}/evaluate")
+def evaluate(
+    atom_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.REVIEWER, atom.domain, atom.capability)
+    summary = evaluation.evaluate_atom(db, atom_id, trigger=f"manual:{user.email}")
+    db.commit()
+    if summary.get("decision") == "AUTO_APPROVED":
+        defer_export(trigger=f"auto-approval:{atom_id}")
+    return summary
+
+
+@router.get("/{atom_id}/confidence")
+def confidence(
+    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+) -> dict:
+    latest = evaluation.latest_confidence(db, atom_id)
+    if latest is None:
+        raise NotFoundError(f"Atom {atom_id} ainda não foi avaliado")
+    return latest
+
+
+@router.post("/{atom_id}/new-version")
+def new_version(
+    atom_id: str,
+    body: NewVersionIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.DECISION_OWNER, atom.domain, atom.capability)
+    changes = body.model_dump(
+        exclude={"expected_lock_version", "reason"}, exclude_none=True
+    )
+    atom = svc.new_canonical_version(
+        db,
+        atom_id,
+        actor=user.email,
+        expected_lock_version=body.expected_lock_version,
+        changes=changes,
+        reason=body.reason,
+    )
+    db.commit()
+    defer_export(trigger=f"new-version:{atom_id}")
+    return _atom_out(atom)
+
+
+@router.post("/{atom_id}/supersede")
+def supersede(
+    atom_id: str,
+    body: SupersedeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.DECISION_OWNER, atom.domain, atom.capability)
+    atom = svc.supersede_with(
+        db,
+        atom_id,
+        new_atom_id=body.by,
+        actor=user.email,
+        expected_lock_version=body.expected_lock_version,
+        reason=body.reason,
+    )
+    db.commit()
+    defer_export(trigger=f"supersede:{atom_id}")
+    return _atom_out(atom)

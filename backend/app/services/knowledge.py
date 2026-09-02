@@ -261,6 +261,12 @@ def update_atom(
     atom = get_atom(db, atom_id)
     _check_lock(atom, expected_lock_version)
 
+    # §123: silent canonical overwrite é proibido — canonical muda por nova versão
+    if atom.status in (str(LifecycleStatus.CANONICAL), str(LifecycleStatus.SUPERSEDED)):
+        raise KernelError(
+            f"Atom {atom.status} não pode ser editado diretamente; use new-version (§71-§72)"
+        )
+
     invalid = set(changes) - MUTABLE_FIELDS
     if invalid:
         raise KernelError(f"Campos não editáveis: {sorted(invalid)}")
@@ -330,6 +336,89 @@ def change_status(
             db, events.KNOWLEDGE_CANONICALIZED, actor, atom.id, {"version": atom.version}
         )
     return atom
+
+
+def new_canonical_version(
+    db: Session,
+    atom_id: str,
+    *,
+    actor: str,
+    expected_lock_version: int,
+    changes: dict[str, Any],
+    reason: str,
+) -> KnowledgeAtom:
+    """§71-§72: RULE-A v1 → v2 no MESMO id; histórico preservado nos snapshots.
+
+    O chamador deve ter verificado autoridade de Decision Owner (§8).
+    """
+    atom = get_atom(db, atom_id)
+    _check_lock(atom, expected_lock_version)
+    if atom.status != str(LifecycleStatus.CANONICAL):
+        raise KernelError("new-version só se aplica a atoms CANONICAL")
+    invalid = set(changes) - MUTABLE_FIELDS
+    if invalid:
+        raise KernelError(f"Campos não editáveis: {sorted(invalid)}")
+
+    diff: dict[str, list] = {}
+    for campo, novo in changes.items():
+        if campo == "body":
+            novo = validate_body(atom.kind, novo)
+        old = getattr(atom, campo)
+        if old != novo:
+            diff[campo] = [old, novo]
+            setattr(atom, campo, novo)
+    if not diff:
+        raise KernelError("Nova versão sem nenhuma alteração")
+
+    atom.version += 1
+    atom.lock_version += 1
+    _snapshot(db, atom, actor)
+    events.record_event(
+        db,
+        events.ATOM_UPDATED,
+        actor,
+        atom.id,
+        {"changes": diff, "new_version": atom.version, "reason": reason},
+    )
+    events.record_event(
+        db, events.KNOWLEDGE_CANONICALIZED, actor, atom.id, {"version": atom.version}
+    )
+    return atom
+
+
+def supersede_with(
+    db: Session,
+    old_atom_id: str,
+    *,
+    new_atom_id: str,
+    actor: str,
+    expected_lock_version: int,
+    reason: str,
+) -> KnowledgeAtom:
+    """§72: atom substituído por OUTRO atom — status SUPERSEDED + relação SUPERSEDES.
+
+    O chamador deve ter verificado autoridade de Decision Owner (§8).
+    """
+    novo = get_atom(db, new_atom_id)
+    if novo.status != str(LifecycleStatus.CANONICAL):
+        raise KernelError("O atom substituto precisa estar CANONICAL")
+    old = change_status(
+        db,
+        old_atom_id,
+        actor=actor,
+        new_status=LifecycleStatus.SUPERSEDED,
+        reason=reason,
+        expected_lock_version=expected_lock_version,
+        authority_granted=True,
+    )
+    add_relation(
+        db,
+        actor=actor,
+        from_atom=new_atom_id,
+        to_atom=old_atom_id,
+        relation_type=RelationType.SUPERSEDES,
+    )
+    return old
 
 
 def add_relation(

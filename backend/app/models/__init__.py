@@ -1,4 +1,5 @@
 from app.models.auth import Capability, Domain, Role, RoleBinding, User
+from app.models.confidence import ConfidenceScore, ConfidenceSignal, Policy
 from app.models.knowledge import (
     AtomRelation,
     DomainEvent,
@@ -12,8 +13,11 @@ from app.models.knowledge import (
 __all__ = [
     "AtomRelation",
     "Capability",
+    "ConfidenceScore",
+    "ConfidenceSignal",
     "Domain",
     "DomainEvent",
+    "Policy",
     "Evidence",
     "EvidenceLink",
     "KnowledgeAtom",

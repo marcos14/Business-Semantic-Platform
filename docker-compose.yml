@@ -21,9 +21,12 @@ services:
       DATABASE_URL: postgresql+psycopg://bsp:bsp@db:5432/bsp
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      CANONICAL_REPO_PATH: /canonical-repo
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
+    volumes:
+      - ./canonical-repo:/canonical-repo
     depends_on:
       db:
         condition: service_healthy
@@ -32,8 +35,11 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg://bsp:bsp@db:5432/bsp
+      CANONICAL_REPO_PATH: /canonical-repo
     # aplica o schema do procrastinate apenas se ainda não existir (healthcheck falha)
     command: sh -c "procrastinate --app=app.jobs.job_app healthchecks || procrastinate --app=app.jobs.job_app schema --apply; exec procrastinate --app=app.jobs.job_app worker"
+    volumes:
+      - ./canonical-repo:/canonical-repo
     depends_on:
       db:
         condition: service_healthy

@@ -5,9 +5,14 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.deps import get_current_user
 from app.auth.passwords import hash_password
 from app.db import get_db
+from app.kernel.ir.envelope import RiskLevel
+from app.kernel.ir.registry import known_kinds
+from app.kernel.policy import SCOPE_TYPES
 from app.models.auth import Capability, Domain, Role, RoleBinding, User
+from app.models.confidence import Policy
 from app.rbac.deps import require
 
 router = APIRouter(
@@ -153,4 +158,78 @@ def delete_binding(binding_id: uuid.UUID, db: Session = Depends(get_db)) -> None
     if binding is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Binding inexistente")
     db.delete(binding)
+    db.commit()
+
+
+# ---------- Policies (§32-§35) ----------
+
+
+class PolicyIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    scope_type: str
+    selector: str | None = None
+    threshold: float | None = Field(default=None, ge=0, le=1)
+    human_review_required: bool | None = None
+    min_reviewers: int | None = Field(default=None, ge=1)
+    require_owner_approval: bool | None = None
+    active: bool = True
+
+
+def _validate_policy_scope(db: Session, body: PolicyIn) -> None:
+    if body.scope_type not in SCOPE_TYPES:
+        raise HTTPException(422, f"scope_type inválido (use {sorted(SCOPE_TYPES)})")
+    if body.scope_type == "global":
+        if body.selector is not None:
+            raise HTTPException(422, "Política global não usa selector")
+        return
+    if not body.selector:
+        raise HTTPException(422, f"scope_type {body.scope_type} exige selector")
+    if body.scope_type == "domain" and db.get(Domain, body.selector) is None:
+        raise HTTPException(404, "Domain inexistente")
+    if body.scope_type == "capability" and db.get(Capability, body.selector) is None:
+        raise HTTPException(404, "Capability inexistente")
+    if body.scope_type == "atom_kind" and body.selector not in known_kinds():
+        raise HTTPException(422, f"Kind desconhecido: {body.selector}")
+    if body.scope_type == "risk" and body.selector not in list(RiskLevel):
+        raise HTTPException(422, f"Risk inválido: {body.selector}")
+
+
+def _policy_out(p: Policy) -> dict:
+    return {
+        "id": str(p.id),
+        "name": p.name,
+        "scope_type": p.scope_type,
+        "selector": p.selector,
+        "threshold": p.threshold,
+        "human_review_required": p.human_review_required,
+        "min_reviewers": p.min_reviewers,
+        "require_owner_approval": p.require_owner_approval,
+        "active": p.active,
+    }
+
+
+@router.post("/policies", status_code=status.HTTP_201_CREATED)
+def create_policy(
+    body: PolicyIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_user),
+) -> dict:
+    _validate_policy_scope(db, body)
+    p = Policy(**body.model_dump(), created_by=admin.email)
+    db.add(p)
+    db.commit()
+    return _policy_out(p)
+
+
+@router.get("/policies")
+def list_policies(db: Session = Depends(get_db)) -> list[dict]:
+    return [_policy_out(p) for p in db.scalars(select(Policy).order_by(Policy.created_at))]
+
+
+@router.delete("/policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_policy(policy_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    p = db.get(Policy, policy_id)
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Política inexistente")
+    db.delete(p)
     db.commit()

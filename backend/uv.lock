@@ -137,6 +137,7 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
+    { name = "pyyaml" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -158,6 +159,7 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.2" },
     { name = "pyjwt", specifier = ">=2.8" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlalchemy", specifier = ">=2.0.30" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
