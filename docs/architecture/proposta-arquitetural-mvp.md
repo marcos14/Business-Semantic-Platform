@@ -123,7 +123,7 @@ Decisão validada na análise do projeto `praxis-autonomous` (pacote `internal/m
   - `--json-schema`: saída estruturada validada pelo harness, com resgate via `--resume` quando a validação falha (reaproveita o cache da sessão);
   - `--disallowedTools` (Edit/Write/NotebookEdit, `git commit/push`): modo somente leitura best-effort;
   - `--max-budget-usd`, `--model opus`, `--effort high`; custo real em USD por run;
-  - perfis isolados via `CLAUDE_CONFIG_DIR`; log `.jsonl` completo por run; tratamento de limite de franquia (reagendar) e falha de autenticação; timeout + kill da árvore de processos.
+  - credencial ambiente do harness da máquina (`claude` logado no PATH — sem gestão de assinatura/API key pela plataforma; `CLAUDE_CONFIG_DIR` opcional para múltiplas contas no futuro); log `.jsonl` completo por run; tratamento de limite de franquia (reagendar) e falha de autenticação; timeout + kill da árvore de processos.
 - Execução **sempre em clone/worktree descartável** da fonte legada — o `--dangerously-skip-permissions` exige isolamento; a garantia de somente-leitura é o descarte do workspace, não a flag.
 - O log `.jsonl` integra o audit do run (§87): registra o que o agente realmente leu; gravamos também versão do CLI, modelo, effort, hash do prompt e `session_id`.
 - **Prompts próprios do BSP** (não os do Praxis): o consultor do Praxis proíbe citar arquivos/código; o BSP *exige* evidence com arquivo/linha/commit (AC-EVI-01).

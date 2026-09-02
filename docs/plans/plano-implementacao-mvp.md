@@ -98,7 +98,7 @@ Pré-requisito de negócio (decidir antes de iniciar): **seleção da capability
 
 Entregáveis:
 
-- [ ] Porta `CodeAnalysisEngine` + runner subprocess (`claude -p --output-format stream-json --json-schema ...`), portando do `motor` do Praxis: resgate via `--resume`, `--disallowedTools` somente leitura, `--max-budget-usd`, `CLAUDE_CONFIG_DIR`, log `.jsonl`, timeout + kill-tree, detecção de limite de franquia (reagendar job) e falha de auth.
+- [ ] Porta `CodeAnalysisEngine` + runner subprocess (`claude -p --output-format stream-json --json-schema ...`), portando do `motor` do Praxis: resgate via `--resume`, `--disallowedTools` somente leitura, `--max-budget-usd`, credencial ambiente do harness da máquina (`claude` logado no PATH; `CLAUDE_CONFIG_DIR` opcional para múltiplas contas no futuro), log `.jsonl`, timeout + kill-tree, detecção de limite de franquia (reagendar job) e falha de auth.
 - [ ] Clone/worktree descartável por run; verificação git pós-run.
 - [ ] Registro de auditoria por run: versão do CLI, modelo, effort, hash do prompt, `session_id`, caminho do `.jsonl`, custo USD.
 - [ ] Prompts BSP (política do §90 + obrigação de evidence arquivo/linha/commit): Code Discovery Agent e Test Discovery Agent (§11).
@@ -168,12 +168,29 @@ Entregáveis:
 
 ## Dependências e pendências de decisão
 
+**Resolvidas (2026-09-01):**
+
+- ~~Conta Claude para o harness~~ — o runner usa a **credencial ambiente** já configurada na máquina (`claude` logado no PATH), como o Praxis faz quando não há perfil gerenciado. Sem gestão de assinatura/API key pela plataforma; budget por run continua via `--max-budget-usd`.
+- ~~Chave OpenRouter~~ — `.env` criado na raiz com `OPENROUTER_API_KEY` (ignorado pelo git; `.env.example` versionado). Preencher durante as primeiras fases.
+
+**Em aberto:**
+
 | Pendência | Necessária até | Quem decide |
 |---|---|---|
 | Capability piloto + repositórios legados de origem | Início da Fase 4 | Negócio + especialistas |
-| Gold-standard de perguntas da capability piloto | Início da Fase 4 | Especialistas de domínio |
-| Conta(s) Claude para o harness (assinatura vs API key) e budget por run | Início da Fase 4 | Administrador |
-| Chave OpenRouter | Início da Fase 4 | Administrador |
-| Reviewers reais (3–10, §110) para uso piloto | Fase 5+ | Negócio |
+| Gold-standard de perguntas da capability piloto | Início da Fase 4 (junto com a seleção da capability) | Especialistas de domínio |
+| Reviewers reais (3–10, §110) com papéis e domínios atribuídos | Fase 5+ (uso piloto real) | Negócio |
 
-Fases 0–3 não dependem de nenhuma pendência externa — a implementação pode começar imediatamente pela Fase 0.
+Detalhamento das pendências em aberto:
+
+### 1. Capability piloto + repositórios legados (§110–112)
+
+A fatia do sistema legado onde o MVP será provado ponta a ponta. Critérios de seleção (§111): complexidade de negócio real (regras, exceções, mudanças de estado, lógica de decisão), existência de código E testes, e especialistas vivos e acessíveis. Evitar capability trivial (não prova valor) e escopo amplo demais (afoga os reviewers). Alvo: volume que gere 100–500 candidate atoms. Exemplos do PRD (§112): Cancelamento de Nota/Fatura, Alocação de Pagamento, Validação de Limite de Crédito. Entregar: nome do domínio + 1–3 capabilities, lista dos repositórios de origem (com acesso de leitura para clone) e commit/branch de referência.
+
+### 2. Gold-standard de perguntas (§82–83)
+
+Conjunto de 20–50 perguntas sobre a capability piloto com respostas corretas validadas pelos especialistas, escrito **antes** de rodar o discovery (para não ser contaminado pelo que a plataforma extrair). É a régua do KPI central (Semantic Reconstruction Accuracy) e do teste de alucinação: um agente recebe só o IR canonical e responde; cada resposta é classificada (Correct / Partially / Incorrect / Unknown-corretamente-identificado / Hallucinated). Incluir deliberadamente perguntas cuja resposta correta é "não definido no sistema" — para verificar que a plataforma responde UNKNOWN em vez de inventar (P6). Armazenar versionado em `docs/eval/`.
+
+### 3. Reviewers reais (§7, §8, §110)
+
+As 3–10 pessoas que usarão o workspace de governança no piloto, com papéis atribuídos: maioria **Reviewers**, 1–2 **Domain Experts** (peso maior, resolvem questions), **1 Decision Owner** nomeado por domínio/capability — sem owner, nada canonicaliza no caminho humano quando a política exigir aprovação (§8, AC-GOV-03) — e 1 **Administrator**. Definir também a expectativa de dedicação (ex.: ~30 min/dia durante o piloto) — o tempo deles alimenta o KPI Human Review Cost. Não bloqueia o desenvolvimento: a Fase 3 valida a UI com dados sintéticos e testadores internos; os reviewers reais entram quando candidates reais fluírem (fim da Fase 4 / Fase 5).
