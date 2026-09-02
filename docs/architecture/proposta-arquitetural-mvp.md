@@ -113,14 +113,30 @@ Discovery, corroboration, re-score, export Git, notificações e snapshot de cen
 
 **Por quê:** o enqueue acontece **na mesma transação** do evento de domínio — commit = job garantido, rollback = job nenhum. Zero jobs perdidos/fantasma sem precisar de Redis/broker (menos uma peça stateful para operar). O PRD sugere "Celery/Dramatiq ou equivalente" (§92); se o time preferir Celery+Redis, a troca fica isolada atrás de uma interface fina de enqueue — mas perde-se a transacionalidade, que aqui vale muito.
 
-### D9 — Agentes: pipeline com contratos estruturados e LLMProvider plugável
+### D9 — Agentes: discovery via harness Claude Code; canal API via OpenRouter
 
-- Interfaces do §89 (`DiscoveryAgent`, `CorroborationAgent`, `ConflictAgent`, `ExplanationAgent`, `ReviewAssistant`, `ContextAgent`) como handlers de jobs.
-- Porta `LLMProvider` com adapter inicial **Anthropic** (SDK oficial):
-  - **Modelo default: `claude-opus-5`** com adaptive thinking — extração de regras de negócio de código legado é tarefa de raciocínio pesado; errar aqui custa atenção humana (o recurso mais escasso, §1).
-  - **Structured outputs** (`output_config.format` / `messages.parse`): o agente devolve JSON que valida contra os próprios schemas Pydantic do IR — candidato malformado é impossível por construção, não por parsing defensivo.
-  - **Batch API** para varreduras de discovery em massa (50% do custo; discovery não é sensível a latência).
-  - **Prompt caching**: a política de prompt do §90 + o contexto da capability formam um prefixo estável cacheado; só o trecho de fonte varia por chamada.
+Decisão validada na análise do projeto `praxis-autonomous` (pacote `internal/motor`), que prova o padrão em produção. A camada de agentes usa **duas portas distintas**:
+
+**Porta `CodeAnalysisEngine`** — trabalho pesado sobre repositórios (Discovery Agent, Corroboration Agent):
+
+- Implementação: **Claude Code headless** como subprocesso (`claude -p --output-format stream-json`), portando o padrão `motor` do Praxis para Python:
+  - `--json-schema`: saída estruturada validada pelo harness, com resgate via `--resume` quando a validação falha (reaproveita o cache da sessão);
+  - `--disallowedTools` (Edit/Write/NotebookEdit, `git commit/push`): modo somente leitura best-effort;
+  - `--max-budget-usd`, `--model opus`, `--effort high`; custo real em USD por run;
+  - perfis isolados via `CLAUDE_CONFIG_DIR`; log `.jsonl` completo por run; tratamento de limite de franquia (reagendar) e falha de autenticação; timeout + kill da árvore de processos.
+- Execução **sempre em clone/worktree descartável** da fonte legada — o `--dangerously-skip-permissions` exige isolamento; a garantia de somente-leitura é o descarte do workspace, não a flag.
+- O log `.jsonl` integra o audit do run (§87): registra o que o agente realmente leu; gravamos também versão do CLI, modelo, effort, hash do prompt e `session_id`.
+- **Prompts próprios do BSP** (não os do Praxis): o consultor do Praxis proíbe citar arquivos/código; o BSP *exige* evidence com arquivo/linha/commit (AC-EVI-01).
+- O kernel **verifica a evidence citada** (arquivo existe, range de linhas válido no commit) — barreira anti-alucinação adicional.
+- Evolução: multi-motor (`codex`/`opencode`, como no Praxis) — concordância entre motores independentes vira sinal de confidence (§88).
+
+**Porta `LLMProvider`** — chamadas leves e interativas (Explanation Agent, Review Assistant da Decision Room, tradução de evidence, Context Agent, embeddings para dedup/busca):
+
+- Implementação: **OpenRouter** como canal único de API, modelo **Opus**.
+- Trade-off aceito: perde-se Batch API e recursos nativos do SDK Anthropic; com o discovery no harness, sobram chamadas leves onde isso pesa pouco — e a independência de provider (§89, NFR) vem por construção.
+
+Transversal às duas portas:
+
 - **Dedup** (§11): hash de conteúdo normalizado + similaridade de embedding → gera `Potential Duplicate`, nunca merge automático (P7).
 - Idempotência: jobs de discovery são versionados por `(source, commit, agent_version)`; re-execução não duplica candidates.
 - Gate final é sempre o kernel (D2): mesmo um agente mal-comportado não insere candidate sem evidence nem toca canonical.
@@ -151,7 +167,8 @@ Discovery, corroboration, re-score, export Git, notificações e snapshot de cen
 │                  authority · compiler/linter · serializer   (código puro)│
 │  services/       knowledge · review · conflict · question · audit        │
 │  agents/         discovery · corroboration · conflict · assistant       │
-│  llm/            LLMProvider → AnthropicAdapter (opus-5, batch, cache)   │
+│  engines/        CodeAnalysisEngine → Claude Code headless (subprocess)  │
+│  llm/            LLMProvider → OpenRouter (Opus)                         │
 │  projections/    graph · context builder · BDD · decision tables · md    │
 │  persistence/    SQLAlchemy · outbox · fila (Procrastinate)              │
 └───────┬──────────────────────────────────────────────────────┬───────────┘
@@ -186,7 +203,7 @@ A ordem dos milestones do PRD é boa, com dois ajustes de eficiência:
 | 1 | **Kernel**: schemas IR, registry, lifecycle, evidence, compiler/linter, eventos+outbox, API knowledge | M1 |
 | 2 | **Confidence+Policy**: sinais, score explicável, políticas, roteamento (ACs como testes), export Git | M3 (antecipado) |
 | 3 | **Governança**: Inbox, Kanban, Review Card, Decision Room, votos, decisão, audit — com candidates sintéticos | M4 |
-| 4 | **Discovery**: Source Registry, Code/Test Discovery Agents, corroboration, dedup — na capability piloto real | M2 |
+| 4 | **Discovery**: Source Registry, runner do harness Claude Code, Code/Test Discovery Agents, corroboration, dedup — na capability piloto real | M2 |
 | 5 | **Conflitos e Questions**: detecção, workspace, decomposição de regras | M5 |
 | 6 | **Consumo**: Explorer, busca (FTS+semântica), graph/impact, Context Builder, BDD, decision tables | M6 |
 | 7 | **Calibração**: dashboards de métricas, gold-standard eval, ajuste de thresholds | M7 |
@@ -199,12 +216,13 @@ Ao fim da Fase 3 existe um produto operável ponta a ponta (com ingestão manual
 
 | Risco | Mitigação arquitetural |
 |-------|------------------------|
-| Qualidade da extração LLM (alucinação, regra inventada) | Structured outputs + gate de evidência no kernel (AC-EVI-01) + `UNKNOWN`/`Question` como saídas de primeira classe (P6) + gold-standard eval desde a Fase 4 |
+| Qualidade da extração LLM (alucinação, regra inventada) | `--json-schema` no harness + gate de evidência no kernel (AC-EVI-01) + verificação de evidence contra o commit + `UNKNOWN`/`Question` como saídas de primeira classe (P6) + gold-standard eval desde a Fase 4 |
+| Harness com `--dangerously-skip-permissions` | Execução exclusivamente em clone/worktree descartável; `--disallowedTools` somente leitura; verificação git pós-run |
 | Falsa precisão do confidence score | Fórmula v1 simples e monotônica, versionada, com breakdown sempre visível; calibração posterior via override rate sobre o event log |
 | Drift entre Postgres e repo Git canônico | Escritor único serializado, serialização determinística, `semantic compile` como verificação independente no CI do canonical-repo |
 | Escopo (15 módulos) esmagar o MVP | Kernel + governança são o produto; graph, projeções, métricas e context são projeções finas sobre os mesmos dados (D4/D7) — não módulos independentes |
 | Reviewers não adotarem a ferramenta | UI de governança validada cedo com dados sintéticos (Fase 3); progressive disclosure no servidor; métrica de tempo de review desde o início |
-| Custo de LLM em varreduras grandes | Batch API (−50%), prompt caching, discovery incremental por commit/fonte |
+| Custo de LLM em varreduras grandes | Harness na franquia da assinatura (ou API key) com `--max-budget-usd` por run; discovery incremental por commit/fonte; limite de franquia tratado com reagendamento |
 
 ---
 
@@ -217,7 +235,8 @@ Ao fim da Fase 3 existe um produto operável ponta a ponta (com ingestão manual
 | Fila/jobs | Procrastinate (fila sobre Postgres) | Enqueue transacional; Celery+Redis como alternativa |
 | Grafo | Tabela de relations + CTEs; NetworkX p/ centralidade | Graph DB só se provar necessário |
 | Busca | Postgres FTS + pgvector | Sem Elasticsearch no MVP |
-| LLM | SDK Anthropic · `claude-opus-5` · structured outputs · Batch API · prompt caching | Atrás da porta `LLMProvider` (NFR de independência) |
+| Análise de código | Claude Code headless (padrão `motor` do praxis-autonomous) · Opus · effort high | Porta `CodeAnalysisEngine`; worktree descartável; multi-motor futuro |
+| LLM (canal API) | OpenRouter · Opus | Porta `LLMProvider`: agentes leves + embeddings |
 | Frontend | Next.js + TypeScript | Conforme PRD |
 | Canonical | YAML determinístico + Git (projeção) | Postgres é a fonte da verdade |
 | Auth | E-mail/senha + JWT; RBAC com bindings por domínio/capability | Extensível a OIDC/SSO |
