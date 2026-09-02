@@ -32,22 +32,22 @@ Entregáveis:
 
 ---
 
-## Fase 1 — Kernel semântico (tamanho G — corresponde ao M1)
+## Fase 1 — Kernel semântico (tamanho G — corresponde ao M1) ✅ concluída em 2026-09-02
 
 **Objetivo:** o coração determinístico: IR, lifecycle, evidence, eventos, validação.
 
 Entregáveis:
 
-- [ ] Schemas Pydantic do envelope (§14) + os 14 kinds do IR (§13) + `AtomTypeRegistry` (novo kind sem migração).
-- [ ] Tabelas: `sources`, `knowledge_atoms` (envelope em colunas + `body` JSONB + `lock_version`), `knowledge_atom_versions` (imutável), `evidence`, `evidence_links`, `atom_relations`.
-- [ ] State machine do lifecycle (§26) — transições inválidas impossíveis; classification (§25).
-- [ ] Gate de evidence: candidate automático sem evidence é rejeitado (**AC-EVI-01**).
-- [ ] `domain_events` + outbox (eventos do §98 gravados na mesma transação) + consumidor de audit (§69–70).
-- [ ] Semantic Linter v1 (§60): schema, referências quebradas, IDs duplicados, órfãos, transição inválida.
-- [ ] API `/knowledge` (§94) com filtros do envelope; Source Registry (§10) básico.
-- [ ] Optimistic locking (`lock_version` + `If-Match` → 409) (§105).
+- [x] Schemas Pydantic do envelope (§14) + 13 kinds do IR (§13; Evidence é entidade própria) + `AtomTypeRegistry` com `register()` (novo kind sem migração — testado).
+- [x] Tabelas: `sources`, `knowledge_atoms` (envelope em colunas + `body` JSONB + `lock_version`), `knowledge_atom_versions` (snapshot imutável a cada mutação), `evidence`, `evidence_links` (supports/contradicts), `atom_relations` (migração `26dc761a9876`).
+- [x] State machine do lifecycle (§26) com todos os 14 estados mapeados; alvos com autoridade (CANONICAL/SUPERSEDED) e alvo exclusivo do sistema (AUTO_APPROVED).
+- [x] Gate de evidence no serviço: candidate `origin=agent` sem evidence rejeitado (**AC-EVI-01** verde).
+- [x] `domain_events` append-only na mesma transação; audit (§69–70) = eventos + snapshots via `/knowledge/{id}/history`; `CanonicalKnowledgeChallenged` em evidência contraditória sobre canonical (**AC-CAN-03** parcial, workflow completo na Fase 5).
+- [x] Semantic Linter v1 com os 9 checks do §60, operando sobre coleção (reutilizável pelo `semantic compile` da Fase 2) e sobre o banco (`GET /knowledge/lint`).
+- [x] API `/knowledge` (§94): list com todos os filtros do envelope, candidates, patch, status, evidence, relations, history, lint; Source Registry (§10) em `/sources`.
+- [x] Optimistic locking em PATCH e mudança de status (`expected_lock_version` → 409, §105).
 
-**Critério de saída:** ACs de integridade (§123) e AC-EVI-01 como testes verdes; candidate criado manualmente via API percorre o lifecycle com audit completo; linter acusa cada violação da lista do §60.
+**Critério de saída verificado:** 52/52 testes verdes — lifecycle completo via API com audit (CandidateDiscovered → EvidenceAdded → StatusChanged/HumanReviewRequested → KnowledgeCanonicalized), reviewer barrado de canonicalizar (403) e owner aprovando (AC-GOV-02/03), transição inválida 409, lock desatualizado 409, cada violação do §60 acusada pelo linter; containers atualizados e smoke de `/knowledge` + `/knowledge/lint` ok.
 
 ---
 

@@ -16,3 +16,15 @@ def require(role: Role):
         return user
 
     return dep
+
+
+def ensure_scope_role(
+    user: User, role: Role, domain: str | None, capability: str | None = None
+) -> None:
+    """Checagem escopada em rota (PRD §103): 403 se o papel não cobre o escopo."""
+    if not has_role(user, role, domain=domain, capability=capability):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Requer papel {role.value} no escopo {domain or 'global'}"
+            + (f"/{capability}" if capability else ""),
+        )
