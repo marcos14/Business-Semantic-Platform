@@ -1,0 +1,48 @@
+[project]
+name = "bsp-backend"
+version = "0.1.0"
+description = "Business Semantic Platform — backend (API + worker)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic[email]>=2.7",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "procrastinate>=3.0",
+    "pwdlib[argon2]>=0.2",
+    "pyjwt>=2.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: Depends(...) em default de parâmetro é o padrão idiomático do FastAPI
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# conftest precisa configurar env vars antes de importar app.*
+"tests/conftest.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

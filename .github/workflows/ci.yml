@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: bsp
+          POSTGRES_PASSWORD: bsp
+          POSTGRES_DB: bsp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bsp"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Instalar dependências
+        run: uv sync
+      - name: Lint
+        run: uv run ruff check .
+      - name: Migrações contra banco efêmero
+        run: uv run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+psycopg://bsp:bsp@localhost:5432/bsp
+      - name: Testes
+        run: uv run pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://bsp:bsp@localhost:5432/bsp_test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build

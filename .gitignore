@@ -1,9 +1,15 @@
 # Secrets locais
 .env
 
+# Repositório canônico dedicado (git próprio, não versionado aqui)
+canonical-repo/
+
 # Python
 __pycache__/
 .venv/
+.pytest_cache/
+.ruff_cache/
 
 # Node
 node_modules/
+.next/

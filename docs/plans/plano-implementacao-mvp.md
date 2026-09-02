@@ -15,20 +15,20 @@ Regra de sequenciamento: **kernel antes de agentes; UI de governança validada c
 
 ---
 
-## Fase 0 — Fundação (tamanho P)
+## Fase 0 — Fundação (tamanho P) ✅ concluída em 2026-09-01
 
 **Objetivo:** repositório operável com CI, banco, auth e esqueleto dos dois apps.
 
 Entregáveis:
 
-- [ ] Monorepo: `backend/` (Python 3.12+, uv, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, Procrastinate, ruff, pytest), `frontend/` (Next.js + TypeScript, pnpm), `canonical-repo/` (git dedicado), `docs/`.
-- [ ] Docker Compose: `db` (Postgres 16 + pgvector), `api`, `worker`, `web`.
-- [ ] CI (lint + testes + migração em banco efêmero).
-- [ ] Migração inicial + auth e-mail/senha (argon2) + sessão JWT.
-- [ ] RBAC: papéis do §7 (Viewer, Reviewer, Domain Expert, Decision Owner, Administrator) com bindings `(user, role, domain?, capability?)` (§103); middleware de autorização.
-- [ ] Cadastro de domains/capabilities e usuários (API admin mínima).
+- [x] Monorepo: `backend/` (Python 3.12+, uv, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, Procrastinate, ruff, pytest), `frontend/` (Next.js + TypeScript, pnpm), `canonical-repo/` (git dedicado, commit inicial), `docs/`.
+- [x] Docker Compose: `db` (Postgres 16 + pgvector), `api` (:8000), `worker`, `web` (:3001 — a 3000 do host estava ocupada por Grafana local).
+- [x] CI GitHub Actions (lint + testes com Postgres de serviço + migração em banco efêmero + build do frontend).
+- [x] Migração inicial (`15f27daa52d6`) + auth e-mail/senha (argon2 via pwdlib) + JWT; bootstrap `python -m app.create_admin`.
+- [x] RBAC: papéis do §7 com bindings `(user, role, domain?, capability?)` (§103), hierarquia de papéis e escopo que não vaza entre domains; dependency `require(role)`.
+- [x] API admin mínima: users, domains, capabilities, role-bindings (validação capability↔domain).
 
-**Critério de saída:** login funciona; usuário com papel escopado; CI verde; `docker compose up` sobe os 4 serviços.
+**Critério de saída verificado:** login + `/auth/me` com binding escopado funcionando via containers; 16/16 testes verdes (unitários + integração contra Postgres); ruff limpo; `docker compose up -d` sobe os 4 serviços e o worker permanece ativo. (CI verde no GitHub pendente apenas de push para um remote.)
 
 ---
 
@@ -173,13 +173,13 @@ Entregáveis:
 - ~~Conta Claude para o harness~~ — o runner usa a **credencial ambiente** já configurada na máquina (`claude` logado no PATH), como o Praxis faz quando não há perfil gerenciado. Sem gestão de assinatura/API key pela plataforma; budget por run continua via `--max-budget-usd`.
 - ~~Chave OpenRouter~~ — `.env` criado na raiz com `OPENROUTER_API_KEY` (ignorado pelo git; `.env.example` versionado). Preencher durante as primeiras fases.
 
-**Em aberto:**
+**Resolvidas (2026-09-01, para o projeto de implementação):**
 
-| Pendência | Necessária até | Quem decide |
-|---|---|---|
-| Capability piloto + repositórios legados de origem | Início da Fase 4 | Negócio + especialistas |
-| Gold-standard de perguntas da capability piloto | Início da Fase 4 (junto com a seleção da capability) | Especialistas de domínio |
-| Reviewers reais (3–10, §110) com papéis e domínios atribuídos | Fase 5+ (uso piloto real) | Negócio |
+- ~~Capability piloto~~ — **o próprio `praxis-autonomous`** (`C:\Projetos\praxis-autonomous`): projeto pequeno, mapeável 100%, com código Go + testes + regras de negócio reais (pipeline de demandas, gates, franquia de motores). O projeto maior ("pra valer") será definido depois, no uso real.
+- ~~Gold-standard de perguntas~~ — será **gerado pela IA** no início da Fase 4, sobre o comportamento do praxis-autonomous, e armazenado em `docs/eval/`. No projeto maior, será refeito com os especialistas de domínio.
+- ~~Reviewers reais~~ — adiado para o projeto maior; o desenvolvimento usa **dados sintéticos** e testadores internos em todas as fases.
+
+**Em aberto (apenas para o projeto "pra valer", pós-MVP técnico):** capability de negócio real + gold-standard com especialistas + reviewers nomeados.
 
 Detalhamento das pendências em aberto:
 
