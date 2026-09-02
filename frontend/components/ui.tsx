@@ -146,6 +146,9 @@ function Nav() {
       }}
     >
       <strong style={{ color: "#fff", marginRight: 16 }}>BSP</strong>
+      <Link href="/dashboard" style={link}>
+        Dashboard
+      </Link>
       <Link href="/inbox" style={link}>
         Inbox
       </Link>

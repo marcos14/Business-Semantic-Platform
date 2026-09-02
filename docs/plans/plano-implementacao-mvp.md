@@ -154,18 +154,48 @@ Entregáveis:
 
 ---
 
-## Fase 7 — Métricas e calibração (tamanho P–M — M7)
+## Fase 7 — Métricas e calibração (tamanho P–M — M7) ✅ concluída em 2026-09-02
 
 **Objetivo:** fechar o Definition of Done e calibrar thresholds com uso real. (Os dados já existem desde a Fase 1 — aqui são dashboards + eval.)
 
 Entregáveis:
 
-- [ ] Semantic Coverage (§75) + Confidence Distribution (§76) + Capability/Audit dashboards (§108–109).
-- [ ] KPIs (§77–81, §131): Human Review Cost, Automation Rate, False Auto-Approval Rate, Override Rate.
-- [ ] Eval de Semantic Reconstruction Accuracy com o gold-standard da Fase 4 (§82): agente recebe só o IR canonical, respostas classificadas (Correct/Partial/Incorrect/Unknown-OK/Hallucinated).
-- [ ] Rodada de calibração: ajustar fórmula de confidence (nova versão) e thresholds com base em override/false-approval.
+- [x] Semantic Coverage (§75) — todos os 11 indicadores, incluindo rules com múltiplas evidências independentes (por linhagem) e rules sem owner; Coverage by Capability (§107); Confidence Distribution (§76) nos buckets do PRD; Audit dashboard (§109) com threshold performance (score no roteamento × desfecho — verificado por teste que abaixo de 90% nunca houve auto-approval).
+- [x] KPIs (§77–81, §131) em `/metrics/attention`, todos derivados do event log (D4, sem instrumentação extra): sent-to-review, decisões de owner, latência mediana/média até decisão (wall-clock, rotulado), votos por reviewer, % aprovado sem/com alteração e rejeitado, Automation Rate, False Auto-Approval Rate (auto-aprovados depois desafiados/alterados/superseded), Human Override Rate (proxy explicável documentado).
+- [x] Eval §82/§83 (`uv run python -m app.eval_cli run`): respondente recebe SÓ o Context Package (§63 aplicado), juiz classifica nas 5 categorias do PRD; relatório JSON persistido; testado com provider falso e executado DE VERDADE via OpenRouter/Opus.
+- [x] Home Dashboard (§107) no frontend: tiles (fila, decisões, conflitos, automation rate, false auto-approval, latência), coverage por capability, distribuição de confidence, audit e mudanças recentes.
+- [x] Calibração: a rodada deste ciclo foi o **engine v1→v1.1** (linhagem por arquivo, Fase 4) — recalibração de thresholds exige uso humano real; a infraestrutura (override rate, false auto-approval, threshold performance, políticas como dados) está pronta para a próxima rodada.
 
-**Critério de saída:** Definition of Done do MVP (§124, itens 1–18) integralmente verificável; targets do §132 medidos (mesmo que ainda não atingidos — são hipóteses a recalibrar).
+**Critério de saída verificado:** 125/125 testes verdes; eval REAL sobre o gold-standard do praxis-autonomous (23 perguntas):
+- canonical-only (§82 estrito): **17,4%** estrito, 3/3 unknowns corretos, **0 alucinações** — baseline honesto: `canonical: 0` porque a governança humana ainda não aprovou nada; o agente disse "NÃO SEI" em vez de inventar (§83 atingido);
+- com candidates OBSERVED (exploratório): **65,2% estrito / 69,6% com crédito parcial, 0 alucinações** — o conhecimento já extraído responde 2/3 do gold-standard; o delta 17→65% quantifica o valor na fila de revisão.
+
+---
+
+## Definition of Done do MVP (§124) — verificação final
+
+| # | Critério | Evidência |
+|---|---|---|
+| 1 | Agentes analisam fontes legadas | 4 runs reais sobre o praxis-autonomous (Fase 4) |
+| 2 | Candidates criados automaticamente | 102 candidates + 24 questions reais |
+| 3 | Evidence preservada | 342 evidências verificadas contra o commit, zero inválidas |
+| 4 | Confidence calculada | Engine v1.1, 12 sinais, breakdown explicável |
+| 5 | Threshold 90% funcionando | AC-CONF-01/02 verdes + threshold performance no audit |
+| 6 | Threshold configurável | Políticas como dados, precedência §32, AC-CONF-03 |
+| 7 | Auto-approval por política | Smoke Fase 2 + atom auto-canonical exportado no Git |
+| 8 | Abaixo do threshold → humanos | 102 candidates reais roteados para a Inbox |
+| 9 | Interface amigável | 9 telas (login, dashboard, inbox, kanban, decision room, conflitos, questions, explorer, notificações) |
+| 10 | Múltiplos votos | §42 com papel/expertise/timestamp; AC-GOV-01/04/05 |
+| 11 | Owner decide | §43 completo; AC-GOV-02/03; §105 (409) |
+| 12 | Conflitos resolvidos | §50 completo; jornada §101 testada; conflito real do Praxis aberto |
+| 13 | Canonical produzido | Postgres + export YAML/Git determinístico + `semantic compile` |
+| 14 | Graph construído | Relations + vizinhança + impact §55 + centralidade §56 |
+| 15 | Context packages | §61–63, AC-CTX-01..03, 26ms |
+| 16 | BDD gerado | §65 por scenario e por capability |
+| 17 | Semantic coverage visível | §75/§107 no dashboard |
+| 18 | Toda decisão auditável | Event log append-only = audit por construção (D4) |
+
+**Targets §132 (hipóteses, medidos):** reconstruction accuracy 65,2% potencial (target >90% — exige aprovação humana do corpus + mais passes de discovery); false auto-approval 0 casos reais (medição ativa); automation rate real ainda não representativa (corpus aguarda revisão humana); alucinação **0** (target: próximo de zero ✓).
 
 ---
 

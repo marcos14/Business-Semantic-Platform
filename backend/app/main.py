@@ -16,6 +16,7 @@ from app.discovery.router import router as discovery_router
 from app.health import router as health_router
 from app.kernel.errors import KernelError
 from app.knowledge.router import router as knowledge_router
+from app.metrics.router import router as metrics_router
 from app.notifications.router import router as notifications_router
 from app.questions.router import router as questions_router
 from app.reviews.router import router as reviews_router
@@ -56,3 +57,4 @@ app.include_router(explorer_router)
 app.include_router(context_router)
 app.include_router(projections_router)
 app.include_router(graph_router)
+app.include_router(metrics_router)
