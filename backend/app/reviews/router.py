@@ -130,6 +130,47 @@ def ready_for_decision(
     return {"id": atom.id, "status": atom.status, "lock_version": atom.lock_version}
 
 
+class DecomposeIn(BaseModel):
+    rules: list[dict] = Field(min_length=2)  # [{title, statement, scope?}]
+    reason: str = Field(min_length=1)
+    expected_lock_version: int
+
+
+@router.post("/{atom_id}/suggest-decomposition")
+def suggest_decomposition(
+    atom_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """§47: o Review Assistant (porta OpenRouter) sugere; nenhuma escrita acontece."""
+    from app.services import decompose
+
+    atom = ksvc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.REVIEWER, atom.domain, atom.capability)
+    return {"atom_id": atom_id, "suggestions": decompose.suggest(atom)}
+
+
+@router.post("/{atom_id}/decompose", status_code=status.HTTP_201_CREATED)
+def apply_decomposition(
+    atom_id: str,
+    body: DecomposeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """§43 Split rule: exclusivo do Decision Owner no escopo."""
+    from app.services import decompose
+
+    atom = ksvc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.DECISION_OWNER, atom.domain, atom.capability)
+    criadas = decompose.apply(
+        db, atom_id, user,
+        rules=body.rules, reason=body.reason,
+        expected_lock_version=body.expected_lock_version,
+    )
+    db.commit()
+    return {"original": atom_id, "created": criadas}
+
+
 @router.post("/{atom_id}/decision")
 def decision(
     atom_id: str,

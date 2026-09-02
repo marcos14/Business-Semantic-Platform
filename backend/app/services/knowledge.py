@@ -240,12 +240,16 @@ def add_evidence(
 ) -> Evidence:
     atom = get_atom(db, atom_id)
     ev = _add_evidence(db, atom, actor=actor, origin=origin, **evidence_fields)
-    # §74: evidência contraditória sobre canonical não altera a regra — desafia.
-    if (
+    contradiz = (
         str(evidence_fields.get("relation", EvidenceRelation.SUPPORTS))
         == EvidenceRelation.CONTRADICTS
-        and atom.status == LifecycleStatus.CANONICAL
-    ):
+    )
+    if not contradiz:
+        return ev
+
+    canonical = atom.status == LifecycleStatus.CANONICAL
+    if canonical:
+        # §74: evidência contraditória sobre canonical não altera a regra — desafia.
         events.record_event(
             db,
             events.CANONICAL_KNOWLEDGE_CHALLENGED,
@@ -261,6 +265,13 @@ def add_evidence(
             atom,
             type="canonical_challenged",
             message=f"Nova evidência contraditória em canonical: {atom.title}",
+        )
+    # §48/§74: evidência incompatível abre Conflict (canonical: Reevaluation Request)
+    if atom.kind != str(AtomKind.CONFLICT):
+        from app.services import conflicts
+
+        conflicts.ensure_conflict_for_atom(
+            db, atom, actor=actor, evidence_id=str(ev.id), reevaluation=canonical
         )
     return ev
 

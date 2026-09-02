@@ -81,10 +81,19 @@ class ExceptionBody(_Body):
 
 
 class ConflictBody(_Body):
-    """§48 — assertions incompatíveis. Workspace completo na Fase 5."""
+    """§48-§50 — assertions incompatíveis; nunca auto-merged (P7, AC-CON-01).
+
+    `about`: conflito de evidência sobre UM atom (inclui §74, com reevaluation=True).
+    `assertions`: conflito entre DOIS OU MAIS atoms ([{atom_id, statement}]).
+    O estado do conflito é do próprio conflito (o status do atom fica CONFLICTED).
+    """
 
     topic: str = Field(min_length=1)
-    assertions: list[dict] = Field(default_factory=list)  # {statement, atom_id?, evidence_id?}
+    about: str | None = None
+    assertions: list[dict] = Field(default_factory=list)
+    reevaluation: bool = False  # §74: Reevaluation Request sobre canonical
+    state: str = "open"  # open | resolved | unresolved
+    resolution: dict | None = None
 
 
 class QuestionBody(_Body):
@@ -92,6 +101,8 @@ class QuestionBody(_Body):
 
     question: str = Field(min_length=1)
     answer: str | None = None
+    assigned_to: str | None = None
+    converted_to: str | None = None  # id da rule criada a partir da resposta
 
 
 class CapabilityBody(_Body):

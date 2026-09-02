@@ -152,6 +152,12 @@ function Nav() {
       <Link href="/kanban" style={link}>
         Kanban
       </Link>
+      <Link href="/conflicts" style={link}>
+        Conflitos
+      </Link>
+      <Link href="/questions" style={link}>
+        Questions
+      </Link>
       <Link href="/notifications" style={link}>
         Notificações{unread > 0 ? ` (${unread})` : ""}
       </Link>

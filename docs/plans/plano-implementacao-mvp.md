@@ -120,19 +120,20 @@ Entregáveis:
 
 ---
 
-## Fase 5 — Conflitos e Questions (tamanho M — M5)
+## Fase 5 — Conflitos e Questions (tamanho M — M5) ✅ concluída em 2026-09-02
 
 **Objetivo:** jornada de conflito (§101) e gestão de perguntas.
 
 Entregáveis:
 
-- [ ] Conflict Detection Agent + criação de `Conflict` para assertions incompatíveis — nunca auto-merge (**AC-CON-01, AC-CON-02**).
-- [ ] Conflict Resolution Workspace (§48–50): comparação de evidence, votos, ações do owner (**AC-CON-03**).
-- [ ] Question management (§51): responder, atribuir, converter resposta em rule.
-- [ ] Decomposição de regras (§47) sugerida pelo Review Assistant (porta OpenRouter).
-- [ ] Canonical reopening (§74): nova evidence contraditória → Conflict + Reevaluation Request + notificação do owner, sem alterar o canonical (**AC-CAN-03**).
+- [x] Conflito como atom (kind `conflict`, status CONFLICTED, estado próprio open/resolved/unresolved no body — P7: nunca removido). Criação automática: evidência contraditória abre conflito (1 aberto por atom) e move o atom a CONFLICTED — **canonical nunca muda sozinho**. Detecção por varredura (`POST /conflicts/detect`): evidências contraditórias + relações CONTRADICTS; **Conflict Detection Agent LLM** (porta OpenRouter) para contradições semânticas entre statements, com ids alucinados descartados. **AC-CON-01/02 verdes** (nunca auto-merge; conflito entra na Inbox).
+- [x] Conflict Resolution Workspace (§48–50): Conflict View com lados, evidence e confidence de cada assertion + votos; resolução exclusiva do owner (**AC-CON-03**) com SELECT_ASSERTION, SPLIT_BY_SCOPE/TIME, NEW_INTERPRETATION, MARK_LEGACY_BUG, REQUEST_EVIDENCE, MARK_UNRESOLVED; lock otimista (§105) na resolução; resolução **recusa tocar canonical** (encaminha a new-version/supersede).
+- [x] Question management (§51): listar/filtrar, responder (Domain Expert, §7.3), atribuir (notifica, §73), converter resposta em rule — a resposta vira evidence DOMAIN_EXPERT (§24) e a question aponta `converted_to` com relação PRODUCES.
+- [x] Decomposição (§47): `suggest-decomposition` via Review Assistant (OpenRouter) — só sugere; `decompose` aplicado pelo owner (§43 Split rule): sub-regras SUPERSEDES a original, original REJECTED.
+- [x] Canonical reopening (§74, **AC-CAN-03**): evidência contraditória em canonical → Conflict com `reevaluation: true` + notificação do owner + eventos, canonical intocado.
+- [x] UI: páginas Conflitos (lista por estado), Conflict View (lados com evidência técnica sob demanda + painel de resolução do owner) e Questions (responder/atribuir/converter inline).
 
-**Critério de saída:** jornada §101 ponta a ponta; canonical desafiado reabre por processo, nunca por overwrite.
+**Critério de saída verificado:** 109/109 testes verdes — jornada §101 completa por teste (conflito → split por escopo → duas regras com escopo → CANONICAL); canonical desafiado reabre por processo (conflito de reavaliação + notificação) e resolução que tentaria mudá-lo é recusada. Sobre os dados REAIS do Praxis: a varredura criou 1 conflito aberto para o invariant com as 6 contradições da corroboração ("Quem faz o commit é sempre o orquestrador"), visível em `/conflicts` e na UI.
 
 ---
 
