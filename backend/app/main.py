@@ -7,6 +7,8 @@ from app.auth.router import router as auth_router
 from app.health import router as health_router
 from app.kernel.errors import KernelError
 from app.knowledge.router import router as knowledge_router
+from app.notifications.router import router as notifications_router
+from app.reviews.router import router as reviews_router
 from app.sources.router import router as sources_router
 
 app = FastAPI(title="Business Semantic Platform", version="0.1.0")
@@ -34,3 +36,5 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(knowledge_router)
 app.include_router(sources_router)
+app.include_router(reviews_router)
+app.include_router(notifications_router)

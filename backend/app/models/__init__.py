@@ -9,15 +9,19 @@ from app.models.knowledge import (
     KnowledgeAtomVersion,
     Source,
 )
+from app.models.review import Comment, Notification, Vote
 
 __all__ = [
     "AtomRelation",
     "Capability",
+    "Comment",
     "ConfidenceScore",
     "ConfidenceSignal",
     "Domain",
     "DomainEvent",
+    "Notification",
     "Policy",
+    "Vote",
     "Evidence",
     "EvidenceLink",
     "KnowledgeAtom",

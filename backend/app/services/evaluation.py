@@ -24,6 +24,7 @@ from app.kernel.policy import (
 from app.models.confidence import ConfidenceScore, ConfidenceSignal, Policy
 from app.models.knowledge import AtomRelation, Evidence, EvidenceLink
 from app.services import knowledge as ksvc
+from app.services import notify
 
 SYSTEM_ACTOR = "system:confidence-engine"
 
@@ -214,6 +215,13 @@ def evaluate_atom(
             new_status=LifecycleStatus.NEEDS_HUMAN_REVIEW,
             reason=decision.reason,
             expected_lock_version=atom.lock_version,
+        )
+        # §73: "Threshold/policy causes review"
+        notify.notify_reviewers(
+            db,
+            atom,
+            type="review_needed",
+            message=f"Revisão necessária ({decision.reason}): {atom.title}",
         )
 
     summary.update(

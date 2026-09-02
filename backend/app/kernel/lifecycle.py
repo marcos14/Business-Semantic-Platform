@@ -22,6 +22,7 @@ TRANSITIONS: dict[S, frozenset[S]] = {
         {
             S.DECISION_PENDING,
             S.NEEDS_HUMAN_REVIEW,
+            S.CORROBORATING,  # §41/§43: pedir mais evidência volta para corroboração
             S.CONFLICTED,
             S.UNKNOWN,
             S.LEGACY_BUG,
@@ -29,7 +30,15 @@ TRANSITIONS: dict[S, frozenset[S]] = {
         }
     ),
     S.DECISION_PENDING: frozenset(
-        {S.CANONICAL, S.REJECTED, S.NEEDS_HUMAN_REVIEW, S.LEGACY_BUG, S.UNKNOWN, S.CONFLICTED}
+        {
+            S.CANONICAL,
+            S.REJECTED,
+            S.NEEDS_HUMAN_REVIEW,
+            S.CORROBORATING,
+            S.LEGACY_BUG,
+            S.UNKNOWN,
+            S.CONFLICTED,
+        }
     ),
     S.CONFLICTED: frozenset({S.READY_FOR_EVALUATION, S.IN_REVIEW, S.REJECTED, S.UNKNOWN}),
     S.UNKNOWN: frozenset({S.READY_FOR_EVALUATION, S.CANDIDATE}),

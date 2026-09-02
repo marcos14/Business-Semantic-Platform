@@ -70,23 +70,23 @@ Entregáveis:
 
 ---
 
-## Fase 3 — Governança UI (tamanho G — M4)
+## Fase 3 — Governança UI (tamanho G — M4) ✅ concluída em 2026-09-02
 
 **Objetivo:** jornada humana completa (§100), operável com candidates sintéticos — validação de UX não espera o discovery.
 
 Entregáveis:
 
-- [ ] Seed de candidates sintéticos realistas (fixtures da capability exemplo do PRD: Invoice/AR).
-- [ ] Home dashboard (§107) + Inbox personalizada (§37) com priorização composta v1 (§84).
-- [ ] Kanban de governança (§38) + Review Card (§39).
-- [ ] Decision Room (§40): statement, explicação, confidence com breakdown, evidence, impacto, comments, votos, ações.
-- [ ] Review actions (§41) + votos individuais auditáveis (§42) + resumo para o owner (§44).
-- [ ] Decision authority (§43): aprovar/rejeitar/reclassificar/exceção — só com autoridade no domínio (**AC-GOV-01..05**).
-- [ ] Evidence Viewer em 3 camadas (§46, UX2): tradução de negócio → resumo → fonte técnica (**AC-EVI-02, AC-EVI-03**).
-- [ ] Notificações in-app (§73) via consumidores de eventos.
-- [ ] Human Review como evidence (§24).
+- [x] Seed sintético (`python -m app.seed_demo`): usuários ana/beto/carla@demo.bsp (reviewer/expert/owner em finance), capabilities do §112, 6 atoms em estados variados (canonical automático, conflito crítico com votos divergentes, pendente de decisão), source apontando para o praxis-autonomous.
+- [x] Inbox personalizada (§37) com priorização composta v1 (§84) **explicável** (breakdown por termo: risk, conflito, confidence gap, idade, centralidade) + resumo de contagens; Kanban (§38) com as 6 colunas mapeadas ao lifecycle; Review Card (§39) mínimo para triagem.
+- [x] Decision Room (§40) completa: statement em linguagem de negócio, confidence com breakdown ("por que este número?"), evidence, evidência contraditória destacada, relações/impacto, comments, votos, resumo do owner (§44) com recomendação heurística do sistema (que nunca decide, P8).
+- [x] Review actions (§41, as 8) + votos individuais auditáveis (§42: reviewer, papel, expertise, decisão, comentário, timestamp; evento VoteSubmitted) + primeiro voto abre a discussão.
+- [x] Decisão do owner (§43): APPROVE/REJECT/RECLASSIFY/MARK_KNOWN_BUG/REQUEST_EVIDENCE/ADD_EXCEPTION (cria atom exception ligado por applies_to); **AC-GOV-01..05 verdes**; split/merge ficam para a Fase 5.
+- [x] Evidence Viewer em 3 camadas (§46/UX2): tradução de negócio primeiro, botão "Ver fonte técnica" (location + excerpt) — AC-EVI-02/03 na UI.
+- [x] Notificações in-app (§73): roteamento p/ revisão, decisão aguardando owner, evidência contraditória em canonical, menção em comentário; badge no nav, marcar lida/todas.
+- [x] Human Review como evidence (§24): votos assertivos viram evidence HUMAN_REVIEW/DOMAIN_EXPERT (supports; REJECT → contradicts) e a aprovação do owner também — **fechando o loop com o Confidence Engine** (teste: voto de expert sobe o score).
+- [x] Frontend Next.js: telas Inbox, Kanban, Decision Room e Notificações; login redireciona à Inbox.
 
-**Critério de saída:** jornada §100 ponta a ponta no navegador (reviewer vota → expert revisa → owner canonicaliza) com dados sintéticos; AC-GOV-01..05 verdes; decisão simultânea de dois owners gera 409 (§105).
+**Critério de saída verificado:** 92/92 testes verdes — jornada §100 completa via API (votos divergentes preservados após canonicalização, AC-GOV-04/05), dois owners simultâneos → 409 (§105); seed rodado nos containers e Inbox real da Carla priorizando corretamente (crítica com conflito 8.2 > alta 5.1 > decisão pendente 3.2); web em http://localhost:3001 com as 4 telas respondendo.
 
 ---
 

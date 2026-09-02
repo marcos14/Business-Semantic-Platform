@@ -247,6 +247,15 @@ def add_evidence(
             atom.id,
             {"evidence_id": str(ev.id)},
         )
+        # §73: "New conflicting evidence found" — owners do escopo são avisados
+        from app.services import notify
+
+        notify.notify_owners(
+            db,
+            atom,
+            type="canonical_challenged",
+            message=f"Nova evidência contraditória em canonical: {atom.title}",
+        )
     return ev
 
 
