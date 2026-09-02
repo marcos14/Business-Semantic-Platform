@@ -36,12 +36,17 @@ ROUTABLE_STATUSES = {
 
 
 def _lineage_key(ev: Evidence) -> str:
-    """Heurística de independência (§29): mesma source (ou mesmo arquivo) = mesma linhagem."""
-    if ev.source_id is not None:
-        return f"source:{ev.source_id}"
+    """Heurística de independência (§29): mesmo ARQUIVO = mesma linhagem.
+
+    O arquivo vem antes do source_id: uma Source de repositório inteiro tornaria
+    todas as evidências "iguais" (bug corrigido no engine v1.1). Sem arquivo,
+    cai para a source; sem ambos, cada evidência é sua própria linhagem.
+    """
     loc = ev.location or {}
     if loc.get("file"):
-        return f"file:{loc.get('repository', '')}:{loc['file']}"
+        return f"file:{ev.source_id or loc.get('repository', '')}:{loc['file']}"
+    if ev.source_id is not None:
+        return f"source:{ev.source_id}"
     return f"evidence:{ev.id}"
 
 

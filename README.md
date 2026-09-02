@@ -56,3 +56,27 @@ cd backend
 uv run ruff check .
 uv run pytest
 ```
+
+## Discovery (harness Claude Code)
+
+O discovery roda **no host** (onde o CLI `claude` está logado), nunca no container.
+Registre a fonte legada em `/sources` (admin) e então:
+
+```sh
+cd backend
+# execução direta
+uv run python -m app.discovery_cli run --source-name <nome> --agent code \
+    --domain <domain> --capability <cap> --scope "<módulos prioritários>" --budget 5
+
+# ou via fila (a API enfileira em POST /discovery/runs; consuma no host):
+uv run procrastinate --app=app.jobs.job_app worker --queues discovery
+```
+
+Agentes: `code` (código-fonte), `test` (testes automatizados), `corroboration`
+(segunda opinião independente sobre candidates existentes, §88). Cada run fica
+auditado em `/discovery/runs` (custo US$, commit, versão do CLI, log `.jsonl`).
+Candidates entram no funil normal: evidence verificada contra o commit →
+confidence → auto-approval ou Inbox de revisão.
+
+Validação do repositório canônico: `uv run semantic compile`.
+Seed de demonstração: `python -m app.seed_demo` (ana/beto/carla@demo.bsp, senha demo1234!).

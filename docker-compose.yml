@@ -36,8 +36,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://bsp:bsp@db:5432/bsp
       CANONICAL_REPO_PATH: /canonical-repo
-    # aplica o schema do procrastinate apenas se ainda não existir (healthcheck falha)
-    command: sh -c "procrastinate --app=app.jobs.job_app healthchecks || procrastinate --app=app.jobs.job_app schema --apply; exec procrastinate --app=app.jobs.job_app worker"
+    # aplica o schema do procrastinate apenas se ainda não existir (healthcheck falha).
+    # Só a fila default: a fila `discovery` precisa do CLI `claude` e roda em worker no HOST.
+    command: sh -c "procrastinate --app=app.jobs.job_app healthchecks || procrastinate --app=app.jobs.job_app schema --apply; exec procrastinate --app=app.jobs.job_app worker --queues default"
     volumes:
       - ./canonical-repo:/canonical-repo
     depends_on:

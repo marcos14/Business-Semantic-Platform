@@ -11,7 +11,9 @@ from dataclasses import dataclass
 
 from app.kernel.ir.envelope import EvidenceRelation, EvidenceType, Origin
 
-ENGINE_VERSION = "v1"
+# v1.1: linhagem de evidência passou a ser por arquivo (não por source inteira) —
+# scores antigos permanecem gravados com "v1" (histórico nunca é reescrito, §27)
+ENGINE_VERSION = "v1.1"
 
 
 @dataclass(frozen=True)

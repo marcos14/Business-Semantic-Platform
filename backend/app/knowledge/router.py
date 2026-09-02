@@ -333,6 +333,32 @@ def add_relation(
     return {"id": str(rel.id), "from": rel.from_atom, "to": rel.to_atom, "type": rel.type}
 
 
+@router.post("/{atom_id}/evidence/{evidence_id}/translate")
+def translate_evidence_endpoint(
+    atom_id: str,
+    evidence_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Tradução de negócio para evidence sem summary (§46), via porta LLMProvider."""
+    from app.llm.provider import translate_evidence
+    from app.models.knowledge import Evidence
+
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.REVIEWER, atom.domain, atom.capability)
+    ev = db.get(Evidence, evidence_id)
+    if ev is None:
+        raise NotFoundError("Evidence não encontrada")
+    if not ev.excerpt:
+        raise NotFoundError("Evidence sem trecho técnico para traduzir")
+    if ev.summary:
+        return {"id": str(ev.id), "summary": ev.summary, "translated": False}
+    contexto = f"{atom.title} ({atom.domain}/{atom.capability or '-'})"
+    ev.summary = translate_evidence(ev.excerpt, contexto)
+    db.commit()
+    return {"id": str(ev.id), "summary": ev.summary, "translated": True}
+
+
 @router.get("/{atom_id}/history")
 def history(
     atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)

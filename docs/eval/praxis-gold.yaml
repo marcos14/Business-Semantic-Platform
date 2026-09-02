@@ -1,0 +1,184 @@
+# Gold-standard de Semantic Reconstruction Accuracy (PRD §82) — capability piloto: praxis-autonomous
+#
+# Uso (Fase 7): um agente recebe APENAS o IR canonical produzido pela plataforma e responde
+# estas perguntas. Classificação: Correct / Partially Correct / Incorrect /
+# Unknown Correctly Identified / Hallucinated.
+#
+# Perguntas `expected_kind: defined` têm resposta verificada no código-fonte (source_refs).
+# Perguntas `expected_kind: unknown` NÃO têm resposta no sistema — a resposta correta é
+# "não definido/desconhecido" (P6): responder qualquer outra coisa é alucinação.
+#
+# Gerado por IA em 2026-09-02 a partir de leitura direta do código (branch auth).
+
+questions:
+  - id: GOLD.PRAXIS.001
+    question: O que acontece quando a franquia (session/usage limit) do motor de IA esgota durante uma execução?
+    expected_answer: >
+      O sistema detecta a mensagem de limite ("session limit"/"usage limit" com "reset"),
+      marca a execução com o detalhe do limite e não a trata como falha comum: o
+      pipeline/scheduler reagenda e o fallback muda para o próximo motor/perfil disponível —
+      o usuário não fica sem resposta.
+    expected_kind: defined
+    source_refs: [internal/motor/claude.go, README.pt-BR.md]
+
+  - id: GOLD.PRAXIS.002
+    question: Quais motores (harnesses) de IA o sistema suporta?
+    expected_answer: claude (Claude Code), codex e opencode.
+    expected_kind: defined
+    source_refs: [internal/motor/motor.go]
+
+  - id: GOLD.PRAXIS.003
+    question: Qual é o modelo padrão de cada motor?
+    expected_answer: >
+      claude → "opus"; codex → "gpt-5.5"; opencode → vazio (usa o modelo configurado no
+      próprio CLI). Esforço padrão "high" para claude e codex.
+    expected_kind: defined
+    source_refs: [internal/motor/motor.go]
+
+  - id: GOLD.PRAXIS.004
+    question: O que acontece quando a saída estruturada do Claude falha 5 vezes na validação (error_max_structured_output_retries)?
+    expected_answer: >
+      É feito UM resgate: a MESMA sessão é retomada com --resume e um prompt curto pedindo
+      apenas para reemitir a StructuredOutput completa, sem refazer o trabalho. Custo, turnos
+      e tokens do resgate são somados aos do run original.
+    expected_kind: defined
+    source_refs: [internal/motor/claude.go]
+
+  - id: GOLD.PRAXIS.005
+    question: O consultor (Consultas) pode incluir código-fonte na resposta?
+    expected_answer: >
+      Nunca — nenhum trecho de código, SQL, assinatura, caminho de arquivo com extensão de
+      código ou bloco cercado; apenas NOMES de rotinas/telas/regras. Há ainda um pós-filtro
+      no servidor garantindo isso.
+    expected_kind: defined
+    source_refs: [internal/intake/prompts/consultor.md, README.pt-BR.md]
+
+  - id: GOLD.PRAXIS.006
+    question: O que o consultor faz quando a pergunta do usuário é ambígua?
+    expected_answer: >
+      Não responde "no chute": devolve tipo="perguntas" com 1 a 3 perguntas de clarificação
+      curtas, com o contexto de por que importam.
+    expected_kind: defined
+    source_refs: [internal/intake/prompts/consultor.md]
+
+  - id: GOLD.PRAXIS.007
+    question: O consultor responde perguntas sobre como burlar validações ou permissões do sistema?
+    expected_answer: >
+      Recusa (tipo="recusa" com motivo educado). Explicar COMO o sistema valida é legítimo;
+      ensinar a CONTORNAR a validação não é.
+    expected_kind: defined
+    source_refs: [internal/intake/prompts/consultor.md]
+
+  - id: GOLD.PRAXIS.008
+    question: Quantos conjuntos de gates podem rodar simultaneamente por padrão, e por quê?
+    expected_answer: >
+      1 (semáforo global MaxGatesSimultaneosDefault): gates (go build/vet/test) são pesados
+      e serializá-los evita disputa de CPU/disco entre demandas paralelas.
+    expected_kind: defined
+    source_refs: [internal/pipeline/gates.go]
+
+  - id: GOLD.PRAXIS.009
+    question: O que é um Gate no pipeline de demandas?
+    expected_answer: >
+      Um bloco de comandos determinísticos de verificação (build/lint/test) executados pelo
+      ORQUESTRADOR (não pelo harness), com nome, diretório opcional, flag somente-se-mudou e
+      lista de comandos; há também GateExtra opcional por fase.
+    expected_kind: defined
+    source_refs: [internal/pipeline/gates.go]
+
+  - id: GOLD.PRAXIS.010
+    question: Quais são os vereditos possíveis do revisor e o que acompanha cada um?
+    expected_answer: >
+      APROVADO ou REPROVADO, sempre com a lista "problemas"; ao aprovar pode propor
+      fases_novas (título, descrição, valor alto|baixo, checklist, dependências, gate_extra).
+    expected_kind: defined
+    source_refs: [internal/pipeline/veredito.go]
+
+  - id: GOLD.PRAXIS.011
+    question: Quem insere na fila as fases novas propostas pelo revisor?
+    expected_answer: O scheduler — o pipeline apenas as devolve em ResultadoFase.FasesNovas.
+    expected_kind: defined
+    source_refs: [internal/pipeline/veredito.go]
+
+  - id: GOLD.PRAXIS.012
+    question: Quais branches o sistema pode publicar (push), e a main pode ser alterada?
+    expected_answer: Apenas branches praxis/*; a main nunca é tocada.
+    expected_kind: defined
+    source_refs: [README.pt-BR.md]
+
+  - id: GOLD.PRAXIS.013
+    question: Quais são os únicos momentos que exigem um humano no fluxo de uma demanda?
+    expected_answer: Responder as perguntas do analista, aprovar o plano e abrir o MR/integrar.
+    expected_kind: defined
+    source_refs: [README.pt-BR.md]
+
+  - id: GOLD.PRAXIS.014
+    question: Quem faz os commits git durante a execução de uma demanda — o harness ou o orquestrador?
+    expected_answer: >
+      O orquestrador: o harness é proibido de commitar/pushar (Bash(git commit*) e
+      Bash(git push*) desabilitados), e o commit leva o trailer Co-Authored-By do motor.
+    expected_kind: defined
+    source_refs: [internal/motor/claude.go, internal/motor/motor.go]
+
+  - id: GOLD.PRAXIS.015
+    question: O que o modo somente-leitura (revisor) proíbe ao harness?
+    expected_answer: Editar/criar arquivos (Edit, Write, NotebookEdit) e git commit/push.
+    expected_kind: defined
+    source_refs: [internal/motor/claude.go]
+
+  - id: GOLD.PRAXIS.016
+    question: Como perfis/contas de motor são isolados entre si?
+    expected_answer: >
+      Pela variável de ambiente do vendor apontando para um diretório de perfil próprio:
+      CLAUDE_CONFIG_DIR (claude) e CODEX_HOME (codex). opencode não suporta perfil isolado.
+    expected_kind: defined
+    source_refs: [internal/motor/perfil.go]
+
+  - id: GOLD.PRAXIS.017
+    question: Como o sistema diferencia falha de autenticação de limite de franquia, e qual a consequência de cada?
+    expected_answer: >
+      Autenticação: mensagens como "Not logged in"/"please run /login"/"authentication_failed"/
+      token expirado — não se resolve esperando: o fallback pula o perfil e um humano precisa
+      relogar. Franquia: mensagens de session/usage limit com horário de reset — espera/reagenda.
+    expected_kind: defined
+    source_refs: [internal/motor/claude.go, internal/motor/motor.go]
+
+  - id: GOLD.PRAXIS.018
+    question: Qual o timeout padrão de uma execução de harness quando não configurado?
+    expected_answer: 2 horas.
+    expected_kind: defined
+    source_refs: [internal/motor/motor.go]
+
+  - id: GOLD.PRAXIS.019
+    question: Ao pausar/cancelar uma demanda, o que acontece com os processos do harness?
+    expected_answer: >
+      A árvore INTEIRA de processos é morta (não só o filho direto) — sem isso, netos órfãos
+      impediriam o git worktree remove no Windows.
+    expected_kind: defined
+    source_refs: [internal/motor/motor.go]
+
+  - id: GOLD.PRAXIS.020
+    question: Onde uma demanda executa e como o código do projeto é protegido?
+    expected_answer: >
+      Em worktree git isolado com branch dedicada, commit por fase; push apenas de branches
+      praxis/*; consultas respondem sem dar acesso ao repositório.
+    expected_kind: defined
+    source_refs: [README.pt-BR.md]
+
+  - id: GOLD.PRAXIS.021
+    question: Qual é a política de retenção/expurgo dos logs .jsonl das execuções?
+    expected_answer: NÃO DEFINIDO no sistema — a resposta correta é UNKNOWN.
+    expected_kind: unknown
+    source_refs: []
+
+  - id: GOLD.PRAXIS.022
+    question: O Praxis suporta login corporativo SSO/SAML?
+    expected_answer: NÃO DEFINIDO no sistema analisado — a resposta correta é UNKNOWN.
+    expected_kind: unknown
+    source_refs: []
+
+  - id: GOLD.PRAXIS.023
+    question: Existe rollback automático de um Merge Request já integrado?
+    expected_answer: NÃO DEFINIDO no sistema — a resposta correta é UNKNOWN.
+    expected_kind: unknown
+    source_refs: []

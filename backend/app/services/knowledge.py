@@ -140,7 +140,13 @@ def create_candidate(
     if initial_status not in lifecycle.INITIAL_STATUSES:
         raise KernelError(f"Status inicial inválido: {initial_status}")
     evidence = evidence or []
-    if origin == Origin.AGENT and not evidence:
+    # P5/AC-EVI-01: afirmação automática exige evidence. Question/Conflict não são
+    # afirmações (P6: UNKNOWN é resultado válido) — podem nascer sem evidence.
+    if (
+        origin == Origin.AGENT
+        and not evidence
+        and AtomKind(kind) not in (AtomKind.QUESTION, AtomKind.CONFLICT)
+    ):
         raise EvidenceRequiredError(
             "Candidate automático sem evidence é rejeitado (P5, AC-EVI-01)"
         )

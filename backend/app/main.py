@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.admin.router import router as admin_router
 from app.auth.router import router as auth_router
+from app.discovery.router import router as discovery_router
 from app.health import router as health_router
 from app.kernel.errors import KernelError
 from app.knowledge.router import router as knowledge_router
@@ -38,3 +39,4 @@ app.include_router(knowledge_router)
 app.include_router(sources_router)
 app.include_router(reviews_router)
 app.include_router(notifications_router)
+app.include_router(discovery_router)

@@ -88,7 +88,9 @@ def test_caminho_automatico_ate_canonical(client, ctx):
     assert decisao["payload"]["confidence"] >= 0.90
     assert decisao["payload"]["policy"]["threshold"] == 0.90
     assert len(decisao["payload"]["evidence"]) == 4
-    assert decisao["payload"]["engine_version"] == "v1"
+    from app.kernel.confidence import ENGINE_VERSION
+
+    assert decisao["payload"]["engine_version"] == ENGINE_VERSION
     # cadeia de status completa
     trocas = [e["payload"] for e in hist["events"] if e["type"] == "StatusChanged"]
     assert [t["to"] for t in trocas] == ["READY_FOR_EVALUATION", "AUTO_APPROVED", "CANONICAL"]

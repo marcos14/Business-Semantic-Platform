@@ -90,25 +90,33 @@ Entregáveis:
 
 ---
 
-## Fase 4 — Discovery via harness Claude Code (tamanho G — M2)
+## Fase 4 — Discovery via harness Claude Code (tamanho G — M2) ✅ concluída em 2026-09-02
 
 **Objetivo:** substituir os candidates sintéticos por discovery real na capability piloto.
 
-Pré-requisito de negócio (decidir antes de iniciar): **seleção da capability piloto** (§110–112: 1 domínio, 1–3 capabilities, 100–500 atoms esperados, especialistas conhecidos) + **conjunto gold-standard de perguntas** (§82) criado junto com os especialistas.
+Pré-requisitos resolvidos: capability piloto = praxis-autonomous; **gold-standard gerado** (23 perguntas verificadas, [docs/eval/praxis-gold.yaml](../eval/praxis-gold.yaml)).
 
 Entregáveis:
 
-- [ ] Porta `CodeAnalysisEngine` + runner subprocess (`claude -p --output-format stream-json --json-schema ...`), portando do `motor` do Praxis: resgate via `--resume`, `--disallowedTools` somente leitura, `--max-budget-usd`, credencial ambiente do harness da máquina (`claude` logado no PATH; `CLAUDE_CONFIG_DIR` opcional para múltiplas contas no futuro), log `.jsonl`, timeout + kill-tree, detecção de limite de franquia (reagendar job) e falha de auth.
-- [ ] Clone/worktree descartável por run; verificação git pós-run.
-- [ ] Registro de auditoria por run: versão do CLI, modelo, effort, hash do prompt, `session_id`, caminho do `.jsonl`, custo USD.
-- [ ] Prompts BSP (política do §90 + obrigação de evidence arquivo/linha/commit): Code Discovery Agent e Test Discovery Agent (§11).
-- [ ] Verificação de evidence no kernel: arquivo existe e range válido no commit citado.
-- [ ] Corroboration Agent (segundo passe sobre candidates) + sinais de agreement (§88, sem contar mesma fonte duas vezes).
-- [ ] Dedup (§11): hash normalizado + embedding (via OpenRouter) → `Potential Duplicate`.
-- [ ] Porta `LLMProvider` sobre OpenRouter (Opus) + tradução de evidence para linguagem de negócio (alimenta o Evidence Viewer).
-- [ ] Idempotência por `(source, commit, agent_version)`.
+- [x] Porta `CodeAnalysisEngine` (`app/engines/claude_code.py`): porte do `motor` do Praxis — stream-json, `--json-schema` com resgate via `--resume`, `--disallowedTools` somente leitura, `--max-budget-usd`, credencial ambiente, log `.jsonl` por run, timeout + kill-tree, detecção de limite de franquia (job reagenda em 30min) e falha de auth. Correção sobre o original: limite/auth só são avaliados em runs COM erro — um resultado bem-sucedido cujo conteúdo menciona "session limit"+"reset" (ex.: conhecimento extraído sobre a própria detecção do Praxis) dava falso positivo.
+- [x] Workspace descartável (`git clone` efêmero por run) + verificação git pós-run (`workspace_clean` auditado).
+- [x] Auditoria por run em `discovery_runs` + `/discovery/runs`: CLI, modelo, effort, hash do prompt, session_id, log `.jsonl`, custo US$, contadores.
+- [x] Prompts BSP (§90) com evidence arquivo/linha OBRIGATÓRIA + schemas estruturados; Code e Test Discovery Agents (§11).
+- [x] Verificação mecânica de evidence contra o commit: arquivo existe, range válido, e o **excerpt é extraído do arquivo real** (nunca do LLM). Candidate sem evidence válida é rejeitado.
+- [x] Corroboration Agent (§88): segundo agente busca evidência independente (SUPPORTS/CONTRADICTS/NOT_FOUND); atoms sem votos voltam a CORROBORATING e re-roteiam; agent_agreement conta criadores distintos.
+- [x] Dedup: hash normalizado exato (pula) + similaridade difflib ≥0.85 (`PotentialDuplicateDetected`, nunca merge — P7). Embedding ficou de fora: OpenRouter não oferece embeddings (verificado); pg_trgm/embeddings ficam para evolução.
+- [x] Porta `LLMProvider` sobre OpenRouter (`anthropic/claude-opus-5`, verificado no catálogo) + endpoint de tradução de evidence.
+- [x] Idempotência por `(source, commit, agent, prompt_hash)`; questions isentas do gate de evidence (P6 — pergunta não é afirmação).
+- [x] Execução: CLI `python -m app.discovery_cli` no host + fila `discovery` (worker Docker restrito à `default`).
+- [x] Engine de confidence v1→**v1.1**: linhagem de independência por ARQUIVO (source inteira colapsava tudo numa linhagem); histórico v1 preservado (append-only).
 
-**Critério de saída:** jornada automática §99 real — discovery na capability piloto gera 100+ candidates com evidence verificada; parte auto-aprovada por política, parte roteada para a Inbox da Fase 3; custo por run visível.
+**Critério de saída verificado com 4 runs REAIS sobre o praxis-autonomous (commit 1c615ae, Opus effort high):**
+- **102 candidates + 24 questions = 126 atoms**, com **342 evidências — e ZERO citações inválidas em todos os runs** (a verificação mecânica + ameaça de verificação no prompt funcionaram);
+- custo total **US$ 8,20** (code 1: $1,89 · test: $1,07 · corroboration: $2,15 · code 2: $3,09), visível por run em `/discovery/runs`;
+- corroboração adicionou 95 evidências de suporte + **6 contradições reais** — o atom contradito ("Quem faz o commit é sempre o orquestrador") saltou para o topo da Inbox (prioridade 9,3, §85);
+- roteamento honesto: nenhum auto-approval — corpus só de código+teste atinge no máx. 0,78 (sem doc/runtime/humano não se chega a 90%) → tudo na Inbox da Fase 3, correctness > coverage (§133); a jornada automática §99 completa segue provada pelos testes e pelo smoke da Fase 2;
+- qualidade das questions: o agente detectou, p.ex., que `perfil.go` existe no working tree mas não no commit clonado — e perguntou em vez de inventar (P6);
+- 101/101 testes verdes (runner com harness falso: parsing, limite, auth, resgate `--resume`, ingestão, dedup, idempotência, corroboração).
 
 ---
 

@@ -1,5 +1,6 @@
 from app.models.auth import Capability, Domain, Role, RoleBinding, User
 from app.models.confidence import ConfidenceScore, ConfidenceSignal, Policy
+from app.models.discovery import DiscoveryRun
 from app.models.knowledge import (
     AtomRelation,
     DomainEvent,
@@ -17,6 +18,7 @@ __all__ = [
     "Comment",
     "ConfidenceScore",
     "ConfidenceSignal",
+    "DiscoveryRun",
     "Domain",
     "DomainEvent",
     "Notification",

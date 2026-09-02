@@ -17,7 +17,9 @@ TRANSITIONS: dict[S, frozenset[S]] = {
         {S.AUTO_APPROVED, S.NEEDS_HUMAN_REVIEW, S.CONFLICTED, S.UNKNOWN, S.REJECTED}
     ),
     S.AUTO_APPROVED: frozenset({S.CANONICAL}),
-    S.NEEDS_HUMAN_REVIEW: frozenset({S.IN_REVIEW, S.CONFLICTED}),
+    # → CORROBORATING: nova evidência de corroboração reabre o ciclo automático
+    #   (apenas quando ainda não há votos — guard no serviço de corroboração)
+    S.NEEDS_HUMAN_REVIEW: frozenset({S.IN_REVIEW, S.CONFLICTED, S.CORROBORATING}),
     S.IN_REVIEW: frozenset(
         {
             S.DECISION_PENDING,
