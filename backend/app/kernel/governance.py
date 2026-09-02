@@ -69,15 +69,18 @@ def review_priority(
     threshold: float = 0.90,
     conflict_count: int = 0,
     age_days: float = 0.0,
-    centrality: int = 0,
+    centrality: float = 0.0,
 ) -> Priority:
-    """Score composto do §84 — cada termo visível no breakdown (explicável)."""
+    """Score composto do §84 — cada termo visível no breakdown (explicável).
+
+    centrality: 0..1 — PageRank normalizado do job §56 (fallback: nº de relações/10).
+    """
     termos = {
         "risk": _RISK_WEIGHT.get(risk, 1.5),
         "conflict_severity": min(conflict_count * 1.5, 4.5),
         "confidence_gap": round(max(threshold - (confidence or 0.0), 0.0) * 3, 2),
         "age": round(min(age_days / 30.0, 1.0), 2),
-        "graph_centrality": round(min(centrality / 10.0, 1.0), 2),
+        "graph_centrality": round(min(centrality, 1.0), 2),
     }
     return Priority(score=sum(termos.values()), breakdown=termos)
 

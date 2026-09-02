@@ -348,7 +348,10 @@ def inbox(db: Session, user: User) -> dict:
             threshold=DEFAULT_THRESHOLD,
             conflict_count=conflicts.get(a.id, 0),
             age_days=(agora - a.created_at).total_seconds() / 86400,
-            centrality=centrality.get(a.id, 0),
+            # §56: PageRank do job periódico; fallback = nº de relações/10
+            centrality=a.centrality
+            if a.centrality is not None
+            else min(centrality.get(a.id, 0) / 10.0, 1.0),
         )
         item = _card(a, conflicts.get(a.id, 0), votes.get(a.id, 0), supports.get(a.id, 0))
         item["priority"] = prio.as_dict()

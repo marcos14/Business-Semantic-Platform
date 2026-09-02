@@ -152,6 +152,9 @@ function Nav() {
       <Link href="/kanban" style={link}>
         Kanban
       </Link>
+      <Link href="/explorer" style={link}>
+        Explorer
+      </Link>
       <Link href="/conflicts" style={link}>
         Conflitos
       </Link>

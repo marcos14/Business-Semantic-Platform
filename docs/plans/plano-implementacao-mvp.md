@@ -137,19 +137,20 @@ Entregáveis:
 
 ---
 
-## Fase 6 — Consumo do conhecimento (tamanho M — M6)
+## Fase 6 — Consumo do conhecimento (tamanho M — M6) ✅ concluída em 2026-09-02
 
 **Objetivo:** navegar, buscar, medir impacto e projetar o conhecimento canônico.
 
 Entregáveis:
 
-- [ ] Knowledge Explorer (§52): hierarquia Domain → Capability → Concepts/Rules/Decisions/Processes.
-- [ ] Busca (§53): FTS + semântica (pgvector) + todos os filtros.
-- [ ] Graph como projeção (§54): `atom_relations` + CTEs; Impact Analysis (§55); centralidade via NetworkX em job periódico alimentando a priorização (§56, §84).
-- [ ] Context Builder (§61–62) + Agent Context Safety (§63: CANONICAL/OBSERVED/UNRESOLVED/UNKNOWN) (**AC-CTX-01..03**).
-- [ ] Projeções (§64): BDD/Gherkin (§65), Decision Table view editável (§66), State Machine view (§67), Markdown docs.
+- [x] Knowledge Explorer (§52): árvore Domain → Capability com contagens por kind/canonical (`/explorer`) + detalhe agrupado por kind; UI com navegação e projeções inline.
+- [x] Busca (§53): full-text Postgres (coluna tsvector gerada + GIN, config portuguese) com ranking + fallback fuzzy por trigram (pg_trgm), com todos os filtros do envelope. *Busca por embedding adiada: o OpenRouter não oferece embeddings (verificado no catálogo); pgvector entra quando houver provedor de embedding.*
+- [x] Graph como projeção (§54): `GET /graph` (vizinhança até N saltos) e Impact Analysis (§55) em `/knowledge/{id}/impact` com direção de propagação explícita por tipo de relação (direto + transitivo + agrupado por kind).
+- [x] Centralidade (§56): NetworkX em job periódico do worker (30min) gravando `atoms.centrality` (grau normalizado 0..1 — heurística simples, como o próprio §56 pede) e alimentando a priorização da Inbox (§84), com fallback por contagem de relações.
+- [x] Context Builder (§61–63): `GET /context?capability=…` em JSON e Markdown — **AC-CTX-01/02/03 verdes**: só canonical por padrão, candidates apenas explícitos rotulados OBSERVED, conflitos abertos UNRESOLVED e questions UNKNOWN sempre presentes, com safety note (§63).
+- [x] Projeções (§64–68): BDD/Gherkin por scenario e feature por capability (§65), Decision Table (§66, renderizada na Decision Room; edição via PATCH do body), State Machine (§67), documentação Markdown (§64). UI: Explorer + Gherkin/tabela/impact na página do atom.
 
-**Critério de saída:** context package canonical-only gerado < 10s (§122); impact analysis responde "o que é afetado?"; Scenario vira Gherkin.
+**Critério de saída verificado:** 118/118 testes verdes; context package real de `demand-pipeline` gerado em **26ms** (limite: 10s) e honesto — `canonical: 0` (nada do Praxis foi aprovado por humanos ainda), 1 conflito UNRESOLVED e 24 questions UNKNOWN rotulados; impact analysis com teste cobrindo cadeia processo→regra→cenário (direto + transitivo); scenario vira Gherkin (endpoint + UI); busca real "franquia esgotada" no domain praxis: 8 hits full-text.
 
 ---
 

@@ -5,6 +5,13 @@ from fastapi.responses import JSONResponse
 from app.admin.router import router as admin_router
 from app.auth.router import router as auth_router
 from app.conflicts.router import router as conflicts_router
+from app.consume.router import (
+    context_router,
+    explorer_router,
+    graph_router,
+    projections_router,
+    search_router,
+)
 from app.discovery.router import router as discovery_router
 from app.health import router as health_router
 from app.kernel.errors import KernelError
@@ -44,3 +51,8 @@ app.include_router(notifications_router)
 app.include_router(discovery_router)
 app.include_router(conflicts_router)
 app.include_router(questions_router)
+app.include_router(search_router)
+app.include_router(explorer_router)
+app.include_router(context_router)
+app.include_router(projections_router)
+app.include_router(graph_router)

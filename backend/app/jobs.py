@@ -75,6 +75,19 @@ def run_discovery_job(
         }
 
 
+@job_app.periodic(cron="*/30 * * * *")
+@job_app.task(name="jobs.compute_centrality")
+def compute_centrality_job(timestamp: int | None = None) -> dict:
+    """§56: recalcula a importância estrutural do graph (alimenta a priorização §84)."""
+    from app.db import SessionLocal
+    from app.services.graph import compute_centrality
+
+    with SessionLocal() as db:
+        n = compute_centrality(db)
+        db.commit()
+    return {"atoms": n}
+
+
 def defer_export(trigger: str) -> bool:
     """Best-effort pós-commit; o queueing lock garante no máximo 1 export na fila."""
     job = export_canonical_job.configure(queueing_lock="canonical-export")

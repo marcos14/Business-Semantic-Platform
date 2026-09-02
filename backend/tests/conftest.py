@@ -45,6 +45,8 @@ def client():
     from app.db import Base, engine
     from app.main import app
 
+    with engine.begin() as conn:
+        conn.execute(text("create extension if not exists pg_trgm"))
     Base.metadata.drop_all(engine)
     with engine.begin() as conn:
         conn.execute(text("drop type if exists role cascade"))

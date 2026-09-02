@@ -3,16 +3,18 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -48,6 +50,9 @@ class KnowledgeAtom(Base):
     """Envelope comum (PRD §14) em colunas + body específico do kind em JSONB."""
 
     __tablename__ = "knowledge_atoms"
+    __table_args__ = (
+        Index("ix_knowledge_atoms_search", "search_vector", postgresql_using="gin"),
+    )
 
     id: Mapped[str] = mapped_column(String(300), primary_key=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
@@ -67,6 +72,18 @@ class KnowledgeAtom(Base):
     origin: Mapped[str] = mapped_column(String(10))  # agent | human
     version: Mapped[int] = mapped_column(Integer, default=1)  # versão canônica (§71)
     lock_version: Mapped[int] = mapped_column(Integer, default=0)  # optimistic locking (§105)
+    # §56: importância estrutural no graph (0..1, centralidade normalizada; job periódico)
+    centrality: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Full-text search (§53): coluna gerada sobre title + description + statement
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('portuguese', coalesce(title,'') || ' ' || "
+            "coalesce(description,'') || ' ' || coalesce(body->>'statement',''))",
+            persisted=True,
+        ),
+        nullable=True,
+    )
     created_by: Mapped[str] = mapped_column(String(320))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(

@@ -25,6 +25,66 @@ const ACOES_VOTO = [
   "NOT_MY_DOMAIN",
 ];
 
+function Gherkin({ atomId }: { atomId: string }) {
+  const [texto, setTexto] = useState<string | null>(null);
+  useEffect(() => {
+    import("@/lib/api").then(({ API, getToken }) =>
+      fetch(`${API}/projections/bdd/${encodeURIComponent(atomId)}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+        .then((r) => r.text())
+        .then(setTexto)
+    );
+  }, [atomId]);
+  if (!texto) return null;
+  return (
+    <div style={card}>
+      <h3 style={{ marginTop: 0 }}>Projeção BDD (§65)</h3>
+      <pre style={{ background: "#f0fff4", padding: 12, borderRadius: 8, fontSize: 13 }}>
+        {texto}
+      </pre>
+    </div>
+  );
+}
+
+function TabelaDecisao({ atomId }: { atomId: string }) {
+  const [t, setT] = useState<any>(null);
+  useEffect(() => {
+    get(`/projections/decision-table/${encodeURIComponent(atomId)}`).then(setT).catch(() => {});
+  }, [atomId]);
+  if (!t || !t.rows?.length) return null;
+  const cols = [...t.inputs, "output"];
+  return (
+    <div style={card}>
+      <h3 style={{ marginTop: 0 }}>Tabela de decisão (§66)</h3>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th key={c} style={{ border: "1px solid #e2e8f0", padding: "6px 12px", background: "#f7fafc" }}>
+                  {c === "output" ? t.output : c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {t.rows.map((row: any, i: number) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c} style={{ border: "1px solid #e2e8f0", padding: "6px 12px" }}>
+                    {String(row[c] ?? "—")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 const CLASSIFICACOES = [
   "OBSERVED_BEHAVIOR",
   "INTENDED_BEHAVIOR",
@@ -85,6 +145,7 @@ export default function DecisionRoom({ params }: { params: Promise<{ id: string 
   const { id } = use(params);
   const atomId = decodeURIComponent(id);
   const [room, setRoom] = useState<any>(null);
+  const [impact, setImpact] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showConf, setShowConf] = useState(false);
@@ -188,7 +249,7 @@ export default function DecisionRoom({ params }: { params: Promise<{ id: string 
         )}
       </div>
 
-      {room.relations.length > 0 && (
+      {(room.relations.length > 0 || true) && (
         <div style={card}>
           <h3 style={{ marginTop: 0 }}>Relações e impacto</h3>
           <ul style={{ fontSize: 14 }}>
@@ -199,8 +260,48 @@ export default function DecisionRoom({ params }: { params: Promise<{ id: string 
               </li>
             ))}
           </ul>
+          <button
+            style={btn}
+            onClick={async () => {
+              const imp = await get(`/knowledge/${encodeURIComponent(atomId)}/impact`);
+              setImpact(imp);
+            }}
+          >
+            O que é afetado se isto mudar? (§55)
+          </button>
+          {impact && (
+            <div style={{ marginTop: 10, fontSize: 14 }}>
+              <div style={{ color: "#718096", marginBottom: 6 }}>
+                {impact.total} atom(s) afetado(s) —{" "}
+                {Object.entries(impact.by_kind)
+                  .map(([k, n]) => `${k}: ${n}`)
+                  .join(" · ")}
+              </div>
+              {impact.direct.length > 0 && <strong>Impacto direto:</strong>}
+              <ul>
+                {impact.direct.map((i: any) => (
+                  <li key={i.id}>
+                    <a href={`/atom/${encodeURIComponent(i.id)}`}>{i.title}</a>{" "}
+                    <Badge text={i.kind} />
+                  </li>
+                ))}
+              </ul>
+              {impact.transitive.length > 0 && <strong>Impacto transitivo:</strong>}
+              <ul>
+                {impact.transitive.map((i: any) => (
+                  <li key={i.id}>
+                    <a href={`/atom/${encodeURIComponent(i.id)}`}>{i.title}</a>{" "}
+                    <Badge text={i.kind} /> <span style={{ color: "#a0aec0" }}>d{i.distance}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
+
+      {a.kind === "scenario" && <Gherkin atomId={atomId} />}
+      {a.kind === "decision" && <TabelaDecisao atomId={atomId} />}
 
       <div style={card}>
         <h3 style={{ marginTop: 0 }}>

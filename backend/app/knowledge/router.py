@@ -359,6 +359,16 @@ def translate_evidence_endpoint(
     return {"id": str(ev.id), "summary": ev.summary, "translated": True}
 
 
+@router.get("/{atom_id}/impact")
+def impact_analysis(
+    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+) -> dict:
+    """§55: What is affected if this changes?"""
+    from app.services import graph as gsvc
+
+    return gsvc.impact(db, atom_id)
+
+
 @router.get("/{atom_id}/history")
 def history(
     atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
