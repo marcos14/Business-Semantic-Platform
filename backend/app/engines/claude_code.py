@@ -29,6 +29,9 @@ RESCUE_PROMPT = (
 )
 
 READ_ONLY_TOOLS = ["Edit", "Write", "NotebookEdit", "Bash(git commit*)", "Bash(git push*)"]
+# Ferramentas quando o harness roda DENTRO do repositório original (modo inplace):
+# só leitura, sem Bash — nenhum comando pode tocar a árvore do usuário.
+INPLACE_TOOLS = ["Read", "Grep", "Glob"]
 
 
 @dataclass
@@ -43,8 +46,18 @@ class RunOptions:
     budget_usd: float | None = None
     timeout_min: int = 30
     read_only: bool = True
+    # Lista fechada de ferramentas (`--tools`); None = padrão do harness menos READ_ONLY_TOOLS
+    tools: list[str] | None = None
+    # Fontes de settings carregadas pelo harness. "user" evita que hooks/permissões do
+    # repositório ANALISADO (.claude/ do legado) sejam executados pelo agente.
+    setting_sources: str | None = "user"
     # comando do harness; lista permite fake em teste: [sys.executable, "fake_claude.py"]
     executable: str | list[str] = "claude"
+
+
+def tools_for(inplace: bool) -> list[str] | None:
+    """Ferramentas do harness conforme o workspace: inplace = só leitura, sem Bash."""
+    return list(INPLACE_TOOLS) if inplace else None
 
 
 @dataclass
@@ -152,8 +165,12 @@ def _run_once(op: RunOptions, resume_id: str | None) -> RunResult:
         args += ["--max-budget-usd", f"{op.budget_usd:.2f}"]
     if op.schema:
         args += ["--json-schema", json.dumps(op.schema)]
+    if op.tools is not None:
+        args += ["--tools", ",".join(op.tools)]
     if op.read_only:
         args += ["--disallowedTools", *READ_ONLY_TOOLS]
+    if op.setting_sources:
+        args += ["--setting-sources", op.setting_sources]
 
     op.logs_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")

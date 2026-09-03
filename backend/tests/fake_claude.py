@@ -10,6 +10,7 @@ Cenário via env FAKE_SCENARIO:
 
 import json
 import os
+import re
 import sys
 
 
@@ -36,8 +37,9 @@ def main() -> int:
     if "--version" in sys.argv:
         print("9.9.9 (Claude Code fake)")
         return 0
-    sys.stdin.read()  # consome o prompt
+    prompt = sys.stdin.read()  # o prompt: inventário/dirigido leem os arquivos marcados nele
     scenario = os.environ.get("FAKE_SCENARIO", "discovery_ok")
+    marcados = re.findall(r"^### ARQUIVO: (.+)$", prompt, flags=re.M)
     emit({"type": "system", "subtype": "init", "session_id": "sess-fake-1"})
     emit(
         {
@@ -63,6 +65,60 @@ def main() -> int:
                 text="",
                 cost=0.5,
             )
+        return 0
+    if scenario == "inventory_ok":
+        cap = os.environ.get("FAKE_CAP", "billing")
+        result_event(
+            structured={
+                "files": [
+                    {
+                        "path": p,
+                        "summary": f"Arquivo {p} trata de cobrança e juros" if "util" not in p
+                        else "Utilitário genérico de log",
+                        "capabilities": [] if "util" in p else [{"slug": cap, "relevance": 3}]
+                        + ([{"slug": "slug-inexistente", "relevance": 2}]
+                           if p.endswith("_test.go") else []),
+                    }
+                    for p in marcados
+                ]
+                + [{"path": "fantasma.go", "summary": "não estava no lote", "capabilities": []}],
+                "suggested_capabilities": [
+                    {
+                        "name": "Cobrança de Juros",
+                        "rationale": "cálculo de juros aparece em vários arquivos",
+                        "example_files": marcados[:1],
+                    }
+                ],
+            }
+        )
+        return 0
+    if scenario == "directed_ok":
+        alvo = marcados[0] if marcados else "billing.go"
+        ini, fim = (int(x) for x in os.environ.get("FAKE_LINES", "3-6").split("-"))
+        result_event(
+            structured={
+                "candidates": [
+                    {
+                        "kind": "rule",
+                        "title": f"Regra dirigida em {alvo}",
+                        "statement": f"Regra de negócio extraída de {alvo} nas linhas {ini}-{fim}.",
+                        "classification": "OBSERVED_BEHAVIOR",
+                        "risk": "LOW",
+                        "evidence": [
+                            {"file": alvo, "start_line": ini, "end_line": fim,
+                             "summary": "trecho lido no turno dirigido"}
+                        ],
+                    }
+                ],
+                "questions": [],
+                "followups": [
+                    {"file": os.environ.get("FAKE_FOLLOWUP", "billing_test.go"),
+                     "reason": "testes da regra"},
+                    {"file": alvo, "reason": "o próprio alvo (deve ser ignorado)"},
+                    {"file": "nao_existe.pas", "reason": "caminho inventado"},
+                ],
+            }
+        )
         return 0
     if scenario == "corrob_ok":
         atom_id = os.environ.get("FAKE_ATOM_ID", "X.Y.RULE.0001")

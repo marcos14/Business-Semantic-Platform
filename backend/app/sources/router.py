@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.kernel.ir.envelope import SourceType
 from app.models.auth import Role, User
 from app.models.knowledge import Source
 from app.rbac.deps import require
+from app.services import inventory as invsvc
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -87,3 +88,29 @@ def get_source(
     if src is None:
         raise NotFoundError(f"Source não encontrada: {source_id}")
     return _out(src)
+
+
+@router.get("/{source_id}/inventory/summary")
+def inventory_summary(
+    source_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Quantos arquivos foram inventariados, por capability, e capabilities sugeridas."""
+    if db.get(Source, source_id) is None:
+        raise NotFoundError(f"Source não encontrada: {source_id}")
+    return invsvc.inventory_summary(db, source_id)
+
+
+@router.get("/{source_id}/inventory")
+def inventory_files(
+    source_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    capability: str | None = None,
+    q: str | None = Query(default=None, description="filtro em caminho/resumo"),
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> list[dict]:
+    if db.get(Source, source_id) is None:
+        raise NotFoundError(f"Source não encontrada: {source_id}")
+    return invsvc.list_inventory(db, source_id, capability=capability, q=q, limit=limit)

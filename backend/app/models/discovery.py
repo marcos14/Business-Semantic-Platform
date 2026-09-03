@@ -18,11 +18,16 @@ class DiscoveryRun(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), index=True)
-    agent: Mapped[str] = mapped_column(String(30))  # code | test | corroboration
+    agent: Mapped[str] = mapped_column(String(30))  # code | test | corroboration | inventory
     status: Mapped[str] = mapped_column(String(20), default="running")
     # running | succeeded | failed | limit | auth_failed
     domain: Mapped[str] = mapped_column(String(100))
     capability: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Campanha (inventário em lotes / discovery dirigido arquivo a arquivo): agrupa os
+    # muitos runs pequenos de um mesmo disparo.
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    target_file: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    line_range: Mapped[str | None] = mapped_column(String(40), nullable=True)  # "1-1200"
     commit: Mapped[str | None] = mapped_column(String(100), nullable=True)
     model: Mapped[str] = mapped_column(String(50), default="opus")
     effort: Mapped[str] = mapped_column(String(20), default="high")

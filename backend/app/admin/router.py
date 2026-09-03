@@ -85,6 +85,21 @@ class CapabilityIn(BaseModel):
     slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$", max_length=100)
     domain_slug: str
     name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+
+
+class CapabilityPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+
+
+def _cap_out(c: Capability) -> dict:
+    return {
+        "slug": c.slug,
+        "domain_slug": c.domain_slug,
+        "name": c.name,
+        "description": c.description,
+    }
 
 
 @router.post("/capabilities", status_code=status.HTTP_201_CREATED)
@@ -93,17 +108,32 @@ def create_capability(body: CapabilityIn, db: Session = Depends(get_db)) -> dict
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain inexistente")
     if db.get(Capability, body.slug):
         raise HTTPException(status.HTTP_409_CONFLICT, "Capability já existe")
-    db.add(Capability(slug=body.slug, domain_slug=body.domain_slug, name=body.name))
+    cap = Capability(
+        slug=body.slug, domain_slug=body.domain_slug, name=body.name,
+        description=(body.description or None),
+    )
+    db.add(cap)
     db.commit()
-    return {"slug": body.slug, "domain_slug": body.domain_slug, "name": body.name}
+    return _cap_out(cap)
+
+
+@router.patch("/capabilities/{slug}")
+def update_capability(slug: str, body: CapabilityPatch, db: Session = Depends(get_db)) -> dict:
+    """Nome e descrição (a descrição orienta inventário e discovery dirigido)."""
+    cap = db.get(Capability, slug)
+    if cap is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capability inexistente")
+    if body.name is not None:
+        cap.name = body.name
+    if "description" in body.model_fields_set:
+        cap.description = body.description or None
+    db.commit()
+    return _cap_out(cap)
 
 
 @router.get("/capabilities")
 def list_capabilities(db: Session = Depends(get_db)) -> list[dict]:
-    return [
-        {"slug": c.slug, "domain_slug": c.domain_slug, "name": c.name}
-        for c in db.scalars(select(Capability).order_by(Capability.slug))
-    ]
+    return [_cap_out(c) for c in db.scalars(select(Capability).order_by(Capability.slug))]
 
 
 # ---------- Role bindings ----------

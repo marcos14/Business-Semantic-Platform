@@ -29,12 +29,31 @@ from app.kernel.ir.envelope import (
     Origin,
     RiskLevel,
 )
+from app.models.auth import Capability
 from app.models.discovery import DiscoveryRun
+from app.models.inventory import SourceFile
 from app.models.knowledge import KnowledgeAtom, Source
 from app.services import evaluation
+from app.services import inventory as invsvc
 from app.services import knowledge as ksvc
 
 SIMILARITY_THRESHOLD = 0.85
+
+
+def _capability_info(db: Session, slug: str | None) -> dict | None:
+    if not slug:
+        return None
+    cap = db.get(Capability, slug)
+    if cap is None:
+        return {"slug": slug, "name": slug, "description": None}
+    return {"slug": cap.slug, "name": cap.name, "description": cap.description}
+
+
+def _language_notes(ws: workspace.Workspace) -> str:
+    try:
+        return prompts.language_notes(workspace.list_files(ws, invsvc.source_extensions()))
+    except Exception:  # notas são auxiliares: nunca derrubam o run
+        return ""
 
 
 def _normalize(text: str) -> str:
@@ -106,6 +125,20 @@ def _finish(db: Session, run: DiscoveryRun, status: str, error: str | None = Non
     return run
 
 
+def _falha_workspace(
+    db: Session, *, source_id: uuid.UUID, agent: str, domain: str, capability: str | None,
+    model: str, effort: str, actor: str, erro: Exception,
+) -> DiscoveryRun:
+    """Clone impossível (caminho errado, sem .git, branch inexistente…): registra um run
+    `failed` para a falha aparecer na auditoria/tela em vez de morrer só no log do worker."""
+    run = DiscoveryRun(
+        source_id=source_id, agent=agent, domain=domain, capability=capability,
+        model=model, effort=effort, created_by=actor,
+    )
+    db.add(run)
+    return _finish(db, run, "failed", f"workspace: {erro}")
+
+
 def run_discovery(
     db: Session,
     *,
@@ -128,12 +161,23 @@ def run_discovery(
     if source is None or not source.repository:
         raise NotFoundError("Source inexistente ou sem repositório")
 
-    ws = workspace.create(source.repository, branch=source.branch, commit=source.commit)
     try:
+        ws = workspace.acquire(source.repository, source.branch, source.commit)
+    except RuntimeError as e:
+        return _falha_workspace(
+            db, source_id=source_id, agent=agent, domain=domain, capability=capability,
+            model=model, effort=effort, actor=actor, erro=e,
+        )
+    try:
+        ctx = dict(
+            domain=domain,
+            capability=_capability_info(db, capability),
+            languages=_language_notes(ws),
+        )
         prompt = (
-            prompts.code_discovery_prompt(scope_hint, max_candidates)
+            prompts.code_discovery_prompt(scope_hint, max_candidates, **ctx)
             if agent == "code"
-            else prompts.test_discovery_prompt(scope_hint, max_candidates)
+            else prompts.test_discovery_prompt(scope_hint, max_candidates, **ctx)
         )
         p_hash = claude_code.prompt_hash(prompt, prompts.DISCOVERY_SCHEMA)
 
@@ -170,6 +214,7 @@ def run_discovery(
                 budget_usd=budget_usd,
                 timeout_min=timeout_min,
                 executable=executable,
+                tools=claude_code.tools_for(ws.inplace),
             )
         )
         run.cli_version = res.cli_version
@@ -309,6 +354,198 @@ def _ingest(
             run.candidates_rejected += 1
 
 
+# ---------- Discovery dirigido: um turno por arquivo (ou faixa) por capability ----------
+
+
+def _chunks(total_lines: int, chunk_lines: int) -> list[tuple[int, int]]:
+    total = max(total_lines, 1)
+    if total <= chunk_lines:
+        return [(1, total)]
+    faixas = []
+    inicio = 1
+    while inicio <= total:
+        fim = min(inicio + chunk_lines - 1, total)
+        faixas.append((inicio, fim))
+        inicio = fim + 1
+    return faixas
+
+
+def plan_directed(
+    db: Session,
+    source: Source,
+    *,
+    capability: str,
+    min_relevance: int = 2,
+    max_files: int | None = None,
+    chunk_lines: int | None = None,
+) -> list[dict]:
+    """Turnos de uma campanha: [{file, start_line, end_line, total_lines, relevance}].
+    Arquivos maiores que `chunk_lines` viram vários turnos (faixas contíguas)."""
+    chunk_lines = chunk_lines or settings.discovery_chunk_lines
+    arquivos = invsvc.files_for_capability(db, source.id, capability, min_relevance)
+    if max_files:
+        arquivos = arquivos[:max_files]
+    plano = []
+    for sf, rel in arquivos:
+        for ini, fim in _chunks(sf.lines, chunk_lines):
+            plano.append(
+                {"file": sf.path, "start_line": ini, "end_line": fim,
+                 "total_lines": sf.lines, "relevance": rel}
+            )
+    return plano
+
+
+def _followups_validos(
+    ws: workspace.Workspace, alvo: str, followups: list[dict], chunk_lines: int
+) -> list[dict]:
+    """Só arquivos que existem no workspace e não são o alvo; já fatiados em faixas."""
+    saida = []
+    vistos = {alvo}
+    for f in followups or []:
+        path = str(f.get("file", "")).replace("\\", "/").strip().lstrip("./")
+        if not path or path in vistos:
+            continue
+        try:
+            _, total, _ = workspace.read_text(ws, path, max_chars=1)
+        except (OSError, ValueError):
+            continue
+        vistos.add(path)
+        for ini, fim in _chunks(total, chunk_lines):
+            saida.append(
+                {"file": path, "start_line": ini, "end_line": fim, "total_lines": total,
+                 "reason": str(f.get("reason", ""))[:300]}
+            )
+    return saida
+
+
+def run_directed_discovery(
+    db: Session,
+    *,
+    source_id: uuid.UUID,
+    domain: str,
+    capability: str,
+    file: str,
+    start_line: int = 1,
+    end_line: int | None = None,
+    actor: str,
+    batch_id: uuid.UUID | None = None,
+    is_followup: bool = False,
+    budget_usd: float | None = 3.0,
+    max_candidates: int = 12,
+    model: str = "opus",
+    effort: str = "high",
+    timeout_min: int = 20,
+    executable: str = "claude",
+) -> DiscoveryRun:
+    """Um arquivo (ou faixa de linhas) × uma capability = um run do harness com o conteúdo
+    NUMERADO embutido no prompt. Follow-ups pedidos pelo agente voltam em `run.followups`
+    (lista já validada contra o workspace) para o chamador enfileirar."""
+    source = db.get(Source, source_id)
+    if source is None or not source.repository:
+        raise NotFoundError("Source inexistente ou sem repositório")
+    cap_info = _capability_info(db, capability)
+    file = file.replace("\\", "/")
+    prefixo = "f:" if is_followup else ""
+
+    run = DiscoveryRun(
+        source_id=source_id, agent="code", domain=domain, capability=capability,
+        model=model, effort=effort, created_by=actor, batch_id=batch_id, target_file=file,
+    )
+    run.followups = []  # atributo transiente (não persistido)
+    try:
+        ws = workspace.acquire(source.repository, source.branch, source.commit)
+    except RuntimeError as e:
+        db.add(run)
+        return _finish(db, run, "failed", f"workspace: {e}")
+
+    try:
+        try:
+            texto, total, _ = workspace.read_text(ws, file)
+        except (OSError, ValueError) as e:
+            db.add(run)
+            return _finish(db, run, "failed", f"arquivo alvo ilegível: {file} ({e})")
+        linhas = texto.splitlines()
+        total = max(len(linhas), 1)
+        fim = min(end_line or total, total)
+        ini = max(1, min(start_line, fim))
+        conteudo = "\n".join(linhas[ini - 1 : fim])
+        run.line_range = f"{prefixo}{ini}-{fim}"
+
+        sf = db.scalar(
+            select(SourceFile).where(SourceFile.source_id == source_id, SourceFile.path == file)
+        )
+        relacionados = [
+            {"path": s.path, "summary": s.summary}
+            for s, _ in invsvc.files_for_capability(db, source_id, capability, 2)
+            if s.path != file
+        ][:12]
+
+        prompt = prompts.directed_discovery_prompt(
+            domain=domain, capability=cap_info or {"slug": capability, "name": capability},
+            file=file, content=conteudo, start_line=ini, end_line=fim, total_lines=total,
+            max_candidates=max_candidates, file_summary=sf.summary if sf else None,
+            related_files=relacionados,
+        )
+        p_hash = claude_code.prompt_hash(prompt, prompts.DIRECTED_SCHEMA)
+
+        existente = db.scalar(
+            select(DiscoveryRun).where(
+                DiscoveryRun.source_id == source_id,
+                DiscoveryRun.commit == ws.commit,
+                DiscoveryRun.agent == "code",
+                DiscoveryRun.prompt_hash == p_hash,
+                DiscoveryRun.status == "succeeded",
+            )
+        )
+        if existente:
+            existente.followups = []
+            return existente
+
+        run.commit = ws.commit
+        run.prompt_hash = p_hash
+        db.add(run)
+        db.commit()
+
+        res = claude_code.run(
+            claude_code.RunOptions(
+                workdir=ws.path,
+                prompt=prompt,
+                schema=prompts.DIRECTED_SCHEMA,
+                logs_dir=Path(settings.discovery_logs_dir),
+                label=f"directed-{capability}-{str(run.id)[:8]}",
+                model=model,
+                effort=effort,
+                budget_usd=budget_usd,
+                timeout_min=timeout_min,
+                executable=executable,
+                tools=claude_code.tools_for(ws.inplace),
+            )
+        )
+        run.cli_version = res.cli_version
+        run.session_id = res.session_id
+        run.log_path = res.log_path
+        run.cost_usd = res.cost_usd
+        run.num_turns = res.num_turns
+        run.workspace_clean = "yes" if workspace.is_clean(ws) else "no"
+
+        if res.session_limit:
+            return _finish(db, run, "limit", res.limit_detail or res.result_text)
+        if res.auth_failed:
+            return _finish(db, run, "auth_failed", res.result_text)
+        if res.is_error or not res.structured:
+            return _finish(
+                db, run, "failed", f"{res.subtype or 'erro'}: {res.result_text[:800]}"
+            )
+
+        _ingest(db, run, source, ws, res.structured, agent="code", model=model)
+        run.followups = _followups_validos(
+            ws, file, res.structured.get("followups", []), settings.discovery_chunk_lines
+        )
+        return _finish(db, run, "succeeded")
+    finally:
+        workspace.destroy(ws)
+
+
 def _reopen_routing_if_unreviewed(db: Session, atom_id: str, *, run_id: str) -> None:
     """Corroboração reabre o roteamento automático — mas NUNCA por cima de humanos:
     só quando o atom está em NEEDS_HUMAN_REVIEW sem nenhum voto registrado."""
@@ -371,9 +608,20 @@ def run_corroboration(
         {"atom_id": a.id, "statement": (a.body or {}).get("statement") or a.title}
         for a in atoms
     ]
-    ws = workspace.create(source.repository, branch=source.branch, commit=source.commit)
     try:
-        prompt = prompts.corroboration_prompt(alvos)
+        ws = workspace.acquire(source.repository, source.branch, source.commit)
+    except RuntimeError as e:
+        return _falha_workspace(
+            db, source_id=source_id, agent="corroboration", domain=domain,
+            capability=capability, model=model, effort=effort, actor=actor, erro=e,
+        )
+    try:
+        prompt = prompts.corroboration_prompt(
+            alvos,
+            domain=domain,
+            capability=_capability_info(db, capability),
+            languages=_language_notes(ws),
+        )
         run = DiscoveryRun(
             source_id=source_id, agent="corroboration", domain=domain,
             capability=capability, commit=ws.commit, model=model, effort=effort,
@@ -395,6 +643,7 @@ def run_corroboration(
                 budget_usd=budget_usd,
                 timeout_min=timeout_min,
                 executable=executable,
+                tools=claude_code.tools_for(ws.inplace),
             )
         )
         run.cli_version = res.cli_version

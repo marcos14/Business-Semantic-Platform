@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -48,6 +48,9 @@ class Capability(Base):
     slug: Mapped[str] = mapped_column(String(100), primary_key=True)
     domain_slug: Mapped[str] = mapped_column(ForeignKey("domains.slug"), index=True)
     name: Mapped[str] = mapped_column(String(200))
+    # O que esta capability cobre em linguagem de negócio — orienta o inventário e o
+    # discovery dirigido (o agente recebe isto no prompt).
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class RoleBinding(Base):

@@ -167,6 +167,12 @@ function Nav() {
       <Link href="/sources" style={link}>
         Sources
       </Link>
+      <Link href="/discovery" style={link}>
+        Discovery
+      </Link>
+      <Link href="/admin" style={link}>
+        Admin
+      </Link>
       <Link href="/notifications" style={link}>
         Notificações{unread > 0 ? ` (${unread})` : ""}
       </Link>

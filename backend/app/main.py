@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,6 +16,7 @@ from app.consume.router import (
 )
 from app.discovery.router import router as discovery_router
 from app.health import router as health_router
+from app.jobs import job_app
 from app.kernel.errors import KernelError
 from app.knowledge.router import router as knowledge_router
 from app.metrics.router import router as metrics_router
@@ -22,7 +25,16 @@ from app.questions.router import router as questions_router
 from app.reviews.router import router as reviews_router
 from app.sources.router import router as sources_router
 
-app = FastAPI(title="Business Semantic Platform", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Abre o conector do Procrastinate pela vida do processo: sem isso, qualquer
+    # `.defer()` disparado pela API (discovery, export canônico) falha com AppNotOpen.
+    with job_app.open():
+        yield
+
+
+app = FastAPI(title="Business Semantic Platform", version="0.1.0", lifespan=lifespan)
 
 
 @app.exception_handler(KernelError)
