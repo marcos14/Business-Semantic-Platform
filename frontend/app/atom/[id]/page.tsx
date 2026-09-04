@@ -6,6 +6,7 @@ import {
   Badge,
   ConfidenceBar,
   RiskBadge,
+  SignificanceBadge,
   Shell,
   StatusBadge,
   btn,
@@ -199,6 +200,7 @@ export default function DecisionRoom({ params }: { params: Promise<{ id: string 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <StatusBadge status={a.status} />
           <RiskBadge risk={a.risk} />
+          <SignificanceBadge significance={a.significance} />
           <Badge text={a.kind} />
           {a.classification && <Badge text={a.classification} color="#6b46c1" />}
           <span style={{ fontSize: 12, color: "#a0aec0" }}>

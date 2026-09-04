@@ -261,7 +261,10 @@ def test_run_dirigido_cria_candidates_da_capability_e_followups(fonte, monkeypat
         assert run.followups[0]["start_line"] == 1 and run.followups[0]["end_line"] == 4
 
         atom = db.scalar(
-            select(KnowledgeAtom).where(KnowledgeAtom.title == "Regra dirigida em billing.go")
+            select(KnowledgeAtom).where(
+                KnowledgeAtom.title == "Regra dirigida em billing.go",
+                KnowledgeAtom.domain == DOMAIN,  # outros módulos criam o mesmo título
+            )
         )
         assert atom is not None and atom.capability == CAP and atom.domain == DOMAIN
 

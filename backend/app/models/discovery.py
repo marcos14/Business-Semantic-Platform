@@ -43,6 +43,12 @@ class DiscoveryRun(Base):
     evidence_rejected: Mapped[int] = mapped_column(Integer, default=0)
     duplicates_skipped: Mapped[int] = mapped_column(Integer, default=0)
     potential_duplicates: Mapped[int] = mapped_column(Integer, default=0)
+    # evidências adicionadas a candidates JÁ existentes (o agente reconheceu a regra em
+    # outro arquivo em vez de duplicá-la) — fonte independente, sobe a confiança
+    reinforcements: Mapped[int] = mapped_column(Integer, default=0)
+    # candidates que o agente marcou como TRIVIAL (validação genérica/técnica) e o kernel
+    # descartou antes de gravar — não são conhecimento de negócio
+    trivial_skipped: Mapped[int] = mapped_column(Integer, default=0)
     workspace_clean: Mapped[str | None] = mapped_column(String(10), nullable=True)  # yes|no
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str] = mapped_column(String(320))

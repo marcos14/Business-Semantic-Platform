@@ -104,6 +104,9 @@ def resolve(policies: list[PolicyView], scope: AtomScope) -> EffectivePolicy:
 
 AUTO_APPROVED = "AUTO_APPROVED"
 NEEDS_HUMAN_REVIEW = "NEEDS_HUMAN_REVIEW"
+# Baixa relevância sem confiança suficiente: não vale o tempo de um revisor. Fica
+# aguardando evidência (corroboração/reforço reavaliam automaticamente).
+AWAIT_EVIDENCE = "AWAIT_EVIDENCE"
 
 
 @dataclass(frozen=True)
@@ -123,8 +126,20 @@ def route(
     has_conflict: bool,
     risk: str | None,
     lint_errors: int,
+    significance: str | None = None,
+    low_significance_threshold: float | None = None,
 ) -> RouteDecision:
-    """Decisão do §86: todas as condições precisam passar para auto-approval."""
+    """Decisão do §86: todas as condições precisam passar para auto-approval.
+
+    Régua de relevância: um candidate de significance LOW usa o menor entre o threshold da
+    política e `low_significance_threshold`; se ainda assim não passar, vai para
+    AWAIT_EVIDENCE em vez de ocupar um revisor humano (salvo conflito ou risco crítico)."""
+    baixa = significance == "LOW"
+    limiar = policy.threshold
+    origem_limiar = policy.provenance.get("threshold", "")
+    if baixa and low_significance_threshold is not None and low_significance_threshold < limiar:
+        limiar = low_significance_threshold
+        origem_limiar = f"régua reduzida para baixa relevância ({limiar:.0%})"
     checks = (
         {
             "check": "no_mandatory_human_policy",
@@ -144,14 +159,19 @@ def route(
         },
         {
             "check": "confidence_above_threshold",
-            "passed": score >= policy.threshold,
-            "detail": f"confidence {score:.2%} vs threshold {policy.threshold:.2%} "
-            f"({policy.provenance.get('threshold', '')})",
+            "passed": score >= limiar,
+            "detail": f"confidence {score:.2%} vs threshold {limiar:.2%} ({origem_limiar})",
         },
     )
     falha = next((c for c in checks if not c["passed"]), None)
     if falha is None:
         return RouteDecision(AUTO_APPROVED, checks, "todas as condições do §86 satisfeitas")
+    if baixa and not has_conflict and risk != RiskLevel.CRITICAL:
+        return RouteDecision(
+            AWAIT_EVIDENCE, checks,
+            f"baixa relevância sem confiança suficiente ({falha['check']}: {falha['detail']}) "
+            "— aguarda evidência em vez de revisão humana",
+        )
     return RouteDecision(
         NEEDS_HUMAN_REVIEW, checks, f"reprovado em {falha['check']}: {falha['detail']}"
     )

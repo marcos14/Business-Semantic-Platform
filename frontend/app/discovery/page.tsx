@@ -247,6 +247,29 @@ export default function DiscoveryPage() {
           </pre>
         </div>
       )}
+      {queue?.scheduled_future > 0 && (
+        <div style={{ ...card, background: "#fffaf0", border: "1px solid #f6ad55" }}>
+          <strong>{queue.scheduled_future} job(s) aguardando</strong> até{" "}
+          {fmtDate(queue.next_scheduled_at)}, o horário de reset da franquia informado pelo harness.
+          Trocou de conta do Claude? Libere-os para rodar agora.
+          {admin && (
+            <button
+              style={{ ...btnPrimary, marginLeft: 10, padding: "6px 12px", fontSize: 13 }}
+              onClick={async () => {
+                try {
+                  const r = await post("/discovery/queue/release", {});
+                  setMsg(`${r.released} job(s) liberado(s) para execução imediata.`);
+                  reload();
+                } catch (e: any) {
+                  setErro(e.message);
+                }
+              }}
+            >
+              Liberar agora
+            </button>
+          )}
+        </div>
+      )}
       {!semWorker && pendentes > 0 && workersVivos > 0 && (
         <div style={{ ...card, background: "#ebf8ff", border: "1px solid #90cdf4", fontSize: 13 }}>
           Há {workersVivos} worker(s) com heartbeat, mas o heartbeat não informa a fila. Se o job
@@ -486,7 +509,10 @@ export default function DiscoveryPage() {
               ) : (
                 <>
                   {r.candidates_created} candidates · {r.questions_created} questions ·{" "}
+                  {r.reinforcements > 0 && <span style={{ color: "#276749" }} title="evidências adicionadas a candidates já existentes (fonte independente)">{r.reinforcements} reforço(s) · </span>}
                   {r.candidates_rejected} rejeitados · {r.duplicates_skipped} duplicados ·{" "}
+                  {r.potential_duplicates > 0 && <>{r.potential_duplicates} potencial(is) duplicata(s) · </>}
+                  {r.trivial_skipped > 0 && <span title="validações genéricas/técnicas que o agente marcou como TRIVIAL e o kernel descartou">{r.trivial_skipped} trivial(is) descartado(s) · </span>}
                   {r.evidence_rejected} evidência(s) inválida(s) · {r.num_turns} turno(s)
                 </>
               )}

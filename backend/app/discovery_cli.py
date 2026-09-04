@@ -62,8 +62,24 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--budget", type=float, default=3.0, help="US$ por arquivo/faixa")
     pc.add_argument("--max-candidates", type=int, default=12)
     pc.add_argument("--actor", default="cli:campaign")
+    pe = sub.add_parser("embed", help="gera embeddings dos atoms que ainda não têm (backfill)")
+    pe.add_argument("--domain", default=None)
     args = parser.parse_args(argv)
 
+    if args.command == "embed":
+        from app.services.embeddings import ensure_atom_embeddings
+
+        total = 0
+        with SessionLocal() as db:
+            while True:
+                n = ensure_atom_embeddings(db, domain=args.domain, limit=200)
+                db.commit()
+                total += n
+                if n == 0:
+                    break
+                print(f"  +{n} embedding(s)")
+        print(f"Embeddings garantidos: {total} atom(s) atualizados.")
+        return 0
     if args.command == "inventory":
         return _cmd_inventory(args)
     if args.command == "campaign":

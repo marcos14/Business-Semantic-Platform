@@ -48,6 +48,16 @@ def test_queue_degrada_sem_schema_ou_lista(client, admin):
         assert d["workers_alive"] == 0
 
 
+def test_release_exige_admin_e_degrada_sem_schema(client, admin):
+    assert client.post("/discovery/queue/release").status_code == 401
+    r = client.post("/discovery/queue/release", json={}, headers=admin)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["released"] >= 0
+    if not _schema_presente():
+        assert d["schema_missing"] is True
+
+
 def test_cancelar_job_inexistente_ou_sem_schema_da_404(client, admin):
     r = client.post("/discovery/queue/999999/cancel", headers=admin)
     assert r.status_code == 404, r.text
@@ -73,6 +83,20 @@ def test_listagem_e_cancelamento_com_schema(client, admin):
     meu = next(j for j in d["jobs"] if j["id"] == job_id)
     assert meu["status"] == "todo" and meu["args"]["agent"] == "code"
     assert d["pending"] >= 1
+
+    # agendado para o futuro → aparece em scheduled_future; release antecipa
+    with SessionLocal() as db:
+        db.execute(
+            text("update procrastinate_jobs set scheduled_at = now() + interval '2 hours' "
+                 "where id = :id"),
+            {"id": job_id},
+        )
+        db.commit()
+    d = client.get("/discovery/queue", headers=admin).json()
+    assert d["scheduled_future"] >= 1 and d["next_scheduled_at"]
+    r = client.post("/discovery/queue/release", json={}, headers=admin)
+    assert r.status_code == 200 and r.json()["released"] >= 1
+    assert client.get("/discovery/queue", headers=admin).json()["scheduled_future"] == 0
 
     r = client.post(f"/discovery/queue/{job_id}/cancel", headers=admin)
     assert r.status_code == 200, r.text

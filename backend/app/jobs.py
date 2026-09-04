@@ -115,6 +115,65 @@ def delay_until_reset(texto: str | None, agora=None) -> int:
     return max(60, min(delta, RESET_MAX_SECONDS))
 
 
+def release_scheduled(
+    db, *, queue: str | None = "discovery", batch_id: str | None = None
+) -> list[int]:
+    """Antecipa para AGORA os jobs `todo` agendados para o futuro (esperando reset)."""
+    from sqlalchemy import text
+
+    ids = db.execute(
+        text(
+            """
+            update procrastinate_jobs set scheduled_at = now()
+            where status = 'todo' and scheduled_at > now()
+              and (cast(:queue as varchar) is null or queue_name = :queue)
+              and (cast(:batch as varchar) is null or args->>'batch_id' = :batch)
+            returning id
+            """
+        ),
+        {"queue": queue, "batch": batch_id},
+    ).scalars().all()
+    db.commit()
+    return list(ids)
+
+
+@job_app.periodic(cron="*/10 * * * *")
+@job_app.task(name="jobs.probe_limit", queue="discovery")
+def probe_limit_job(timestamp: int | None = None) -> dict:
+    """A cada 10min, se há jobs esperando o reset da franquia, faz uma chamada mínima ao
+    harness. Se a franquia respondeu (créditos voltaram ou a conta foi trocada), libera
+    todos os jobs agendados para execução imediata. Roda no host (precisa do `claude`)."""
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+    from app.engines import claude_code
+
+    with SessionLocal() as db:
+        esperando = db.execute(
+            text(
+                "select count(*) from procrastinate_jobs "
+                "where queue_name = 'discovery' and status = 'todo' and scheduled_at > now()"
+            )
+        ).scalar() or 0
+        if not esperando:
+            return {"waiting": 0, "released": 0}
+        res = claude_code.probe(Path(settings.discovery_logs_dir))
+        if res.session_limit:
+            log.info("sonda de franquia: ainda no limite (%s)", res.limit_detail)
+            return {"waiting": esperando, "released": 0, "reason": "limit"}
+        if res.auth_failed:
+            log.warning("sonda de franquia: harness deslogado")
+            return {"waiting": esperando, "released": 0, "reason": "auth_failed"}
+        if res.is_error:
+            log.warning("sonda de franquia: erro %s — %s", res.subtype, res.result_text[:200])
+            return {"waiting": esperando, "released": 0, "reason": res.subtype or "error"}
+        ids = release_scheduled(db)
+        log.info("sonda de franquia: créditos disponíveis, %d job(s) liberado(s)", len(ids))
+        return {"waiting": esperando, "released": len(ids), "cost_usd": res.cost_usd}
+
+
 def _reagenda_se_limite(run, task, **kwargs) -> None:
     """Franquia esgotada → mesmo job de novo quando a franquia resetar."""
     if run.status == "limit":

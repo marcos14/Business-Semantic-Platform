@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { get, post } from "@/lib/api";
 import { Badge, Shell, btn, btnPrimary, card, input } from "@/components/ui";
 
@@ -97,6 +97,19 @@ function NovaSource({ domains, onCriada, onErro }: any) {
 const painel = { marginTop: 10, padding: 12, background: "#f7fafc", borderRadius: 8 };
 const dica = { fontSize: 12, color: "#718096" };
 
+/** Campo com rótulo em cima e explicação curta embaixo. */
+function Campo({ label, hint, width, children }: { label: string; hint: ReactNode; width?: number | string; children: ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, width: width ?? "auto", minWidth: 120 }}>
+      <label style={{ fontSize: 12, fontWeight: 600, color: "#4a5568" }}>{label}</label>
+      {children}
+      <span style={{ fontSize: 11, color: "#718096", lineHeight: 1.35 }}>{hint}</span>
+    </div>
+  );
+}
+
+const grade = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 } as const;
+
 /** Passo 1: inventário — liga cada arquivo-fonte às capabilities do domain. */
 function Inventariar({ source, domains, capabilities, onOk, onErro }: any) {
   const [f, setF] = useState<any>({ domain: source.domain_slug ?? "", prefix: "", max_files: "", only_missing: true, budget_usd: 3 });
@@ -108,20 +121,30 @@ function Inventariar({ source, domains, capabilities, onOk, onErro }: any) {
         e pede ao harness, por lote, um resumo de negócio de cada arquivo e a ligação com as capabilities
         do domain. Capabilities que ele encontrar sem cadastro viram sugestões abaixo.
       </p>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <select style={input} value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })}>
-          <option value="">domain *</option>
-          {domains.map((d: any) => (
-            <option key={d.slug} value={d.slug}>{d.slug}</option>
-          ))}
-        </select>
-        <input style={{ ...input, width: 180 }} placeholder="prefixo (ex.: ADM001/)" value={f.prefix} onChange={(e) => setF({ ...f, prefix: e.target.value })} title="só arquivos sob este caminho" />
-        <input style={{ ...input, width: 110 }} type="number" min={1} placeholder="máx. arquivos" value={f.max_files} onChange={(e) => setF({ ...f, max_files: e.target.value })} />
-        <input style={{ ...input, width: 90 }} type="number" min={0.5} max={20} step={0.5} value={f.budget_usd} onChange={(e) => setF({ ...f, budget_usd: Number(e.target.value) })} title="budget US$ por lote" />
-        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="checkbox" checked={f.only_missing} onChange={(e) => setF({ ...f, only_missing: e.target.checked })} />
-          só arquivos ainda não inventariados
-        </label>
+      <div style={grade}>
+        <Campo label="Domain *" hint="Área de negócio cujas capabilities serão usadas para classificar os arquivos.">
+          <select style={input} value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })}>
+            <option value="">selecione</option>
+            {domains.map((d: any) => (
+              <option key={d.slug} value={d.slug}>{d.slug}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo label="Prefixo de caminho" hint="Restringe a uma pasta, ex.: ADM001/. Vazio = toda a source. Útil para inventariar módulo a módulo.">
+          <input style={input} placeholder="ex.: ADM001/" value={f.prefix} onChange={(e) => setF({ ...f, prefix: e.target.value })} />
+        </Campo>
+        <Campo label="Máximo de arquivos" hint="Teto de arquivos nesta rodada. Vazio = todos os elegíveis. Sugestão: 100 a 300 para uma primeira rodada.">
+          <input style={input} type="number" min={1} placeholder="todos" value={f.max_files} onChange={(e) => setF({ ...f, max_files: e.target.value })} />
+        </Campo>
+        <Campo label="Budget por lote (US$)" hint="Gasto máximo de UM lote (10 a 15 arquivos). Se estourar, o lote falha sem gravar nada. Custo real observado: 0,60 a 1,10 por lote. Sugestão: 3.">
+          <input style={input} type="number" min={0.5} max={50} step={0.5} value={f.budget_usd} onChange={(e) => setF({ ...f, budget_usd: Number(e.target.value) })} />
+        </Campo>
+        <Campo label="Escopo" hint="Marcado, ignora arquivos já inventariados (o normal). Desmarque para reclassificar tudo, por exemplo depois de criar capabilities novas.">
+          <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, height: 36 }}>
+            <input type="checkbox" checked={f.only_missing} onChange={(e) => setF({ ...f, only_missing: e.target.checked })} />
+            só arquivos ainda não inventariados
+          </label>
+        </Campo>
       </div>
       {f.domain && caps.length === 0 && (
         <p style={{ color: "#c53030", fontSize: 13, margin: "8px 0 0" }}>
@@ -170,35 +193,55 @@ function Campanha({ source, domains, capabilities, summary, onOk, onErro }: any)
         harness com o conteúdo numerado embutido no prompt. Arquivos grandes são fatiados em faixas.
         O agente pode pedir follow-ups em arquivos relacionados, que entram na mesma campanha.
       </p>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <select style={input} value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value, capability: "" })}>
-          <option value="">domain *</option>
-          {domains.map((d: any) => (
-            <option key={d.slug} value={d.slug}>{d.slug}</option>
-          ))}
-        </select>
-        <select style={{ ...input, minWidth: 220 }} value={f.capability} onChange={(e) => setF({ ...f, capability: e.target.value })}>
-          <option value="">capability *</option>
-          {caps.map((c: any) => (
-            <option key={c.slug} value={c.slug}>
-              {c.slug} ({contagem[c.slug]?.files ?? 0} arquivo(s))
-            </option>
-          ))}
-        </select>
-        <select style={input} value={f.min_relevance} onChange={(e) => setF({ ...f, min_relevance: Number(e.target.value) })} title="relevância mínima">
-          <option value={3}>só centrais (3)</option>
-          <option value={2}>centrais + relevantes (≥2)</option>
-          <option value={1}>todos, inclusive tangenciais (≥1)</option>
-        </select>
-        <input style={{ ...input, width: 110 }} type="number" min={1} placeholder="máx. arquivos" value={f.max_files} onChange={(e) => setF({ ...f, max_files: e.target.value })} />
-        <input style={{ ...input, width: 90 }} type="number" min={0.5} max={20} step={0.5} value={f.budget_usd} onChange={(e) => setF({ ...f, budget_usd: Number(e.target.value) })} title="budget US$ por arquivo/faixa" />
-        <input style={{ ...input, width: 90 }} type="number" min={1} max={40} value={f.max_candidates} onChange={(e) => setF({ ...f, max_candidates: Number(e.target.value) })} title="máx. candidates por turno" />
+      <div style={grade}>
+        <Campo label="Domain *" hint="Área de negócio da capability.">
+          <select style={input} value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value, capability: "" })}>
+            <option value="">selecione</option>
+            {domains.map((d: any) => (
+              <option key={d.slug} value={d.slug}>{d.slug}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo label="Capability *" hint="Tema da campanha. Entre parênteses, quantos arquivos o inventário ligou a ela (qualquer relevância).">
+          <select style={input} value={f.capability} onChange={(e) => setF({ ...f, capability: e.target.value })}>
+            <option value="">selecione</option>
+            {caps.map((c: any) => (
+              <option key={c.slug} value={c.slug}>
+                {c.slug} ({contagem[c.slug]?.files ?? 0} arquivo(s))
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo label="Relevância mínima" hint="Quais arquivos entram: 3 = implementam a capability; 2 = também os que participam dela; 1 = até os que só a referenciam. Sugestão: comece com 3.">
+          <select style={input} value={f.min_relevance} onChange={(e) => setF({ ...f, min_relevance: Number(e.target.value) })}>
+            <option value={3}>só centrais (3)</option>
+            <option value={2}>centrais + relevantes (≥2)</option>
+            <option value={1}>todos, inclusive tangenciais (≥1)</option>
+          </select>
+        </Campo>
+        <Campo label="Máximo de arquivos" hint="Teto de arquivos nesta campanha, por ordem de relevância. Vazio = todos os elegíveis. Sugestão: 20 na primeira vez, para calibrar custo e qualidade.">
+          <input style={input} type="number" min={1} placeholder="todos" value={f.max_files} onChange={(e) => setF({ ...f, max_files: e.target.value })} />
+        </Campo>
+        <Campo label="Budget por turno (US$)" hint="Gasto máximo de UM turno, isto é, um arquivo ou uma faixa de 1.200 linhas. Não é o total da campanha. Se estourar, o turno falha sem gravar. Sugestão: 3 a 5.">
+          <input style={input} type="number" min={0.5} max={50} step={0.5} value={f.budget_usd} onChange={(e) => setF({ ...f, budget_usd: Number(e.target.value) })} />
+        </Campo>
+        <Campo label="Candidates por turno" hint="Quantas regras/decisões/cenários o agente pode devolver por arquivo ou faixa. Poucos = só o essencial; muitos = mais cobertura e mais revisão humana. Sugestão: 10 a 20.">
+          <input style={input} type="number" min={1} max={100} value={f.max_candidates} onChange={(e) => setF({ ...f, max_candidates: Number(e.target.value) })} />
+        </Campo>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
         <button
           style={btnPrimary}
           disabled={!f.domain || !f.capability}
           onClick={async () => {
+            const estimativa = elegiveis * f.budget_usd;
+            if (
+              estimativa > 200 &&
+              !window.confirm(
+                `Custo máximo desta campanha ≈ US$ ${estimativa.toFixed(0)} (${elegiveis} arquivo(s) × US$ ${f.budget_usd} por turno, sem contar faixas e follow-ups). Confirmar?`,
+              )
+            )
+              return;
             try {
               const r = await post("/discovery/campaigns", {
                 source_id: source.id,
@@ -217,9 +260,9 @@ function Campanha({ source, domains, capabilities, summary, onOk, onErro }: any)
         >
           Enfileirar campanha
         </button>
-        <span style={dica}>
+        <span style={{ ...dica, color: elegiveis * f.budget_usd > 200 ? "#c05621" : dica.color }}>
           {f.capability
-            ? `${elegiveis} arquivo(s) elegível(is) · custo máximo ≈ US$ ${(elegiveis * f.budget_usd).toFixed(0)} (sem contar faixas e follow-ups)`
+            ? `${Math.min(elegiveis, f.max_files ? Number(f.max_files) : elegiveis)} arquivo(s) entram · custo MÁXIMO ≈ US$ ${(Math.min(elegiveis, f.max_files ? Number(f.max_files) : elegiveis) * f.budget_usd).toFixed(0)} (arquivos × budget por turno; faixas e follow-ups somam). Custo real costuma ficar bem abaixo do teto.`
             : summary && summary.files === 0
               ? "Esta source ainda não foi inventariada."
               : ""}
@@ -293,7 +336,10 @@ function RodarDiscovery({ source, domains, capabilities, onOk, onErro }: any) {
   );
 }
 
+const SUGESTOES_VISIVEIS = 5;
+
 function ResumoInventario({ source, summary, domains, admin, onCriada, onErro }: any) {
+  const [mostrarTodas, setMostrarTodas] = useState(false);
   if (!summary) return <p style={{ ...dica }}>Carregando inventário…</p>;
   if (summary.files === 0)
     return (
@@ -319,8 +365,11 @@ function ResumoInventario({ source, summary, domains, admin, onCriada, onErro }:
       </div>
       {summary.suggestions.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontWeight: 600 }}>Capabilities sugeridas pelo inventário</div>
-          {summary.suggestions.map((s: any) => (
+          <div style={{ fontWeight: 600 }}>
+            Capabilities sugeridas pelo inventário{" "}
+            <span style={dica}>({summary.suggestions.length}; mostrando {Math.min(mostrarTodas ? summary.suggestions.length : SUGESTOES_VISIVEIS, summary.suggestions.length)}, ordenadas por quantos lotes as citaram)</span>
+          </div>
+          {(mostrarTodas ? summary.suggestions : summary.suggestions.slice(0, SUGESTOES_VISIVEIS)).map((s: any) => (
             <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "4px 0", borderTop: "1px solid #edf2f7" }}>
               <div style={{ flex: 1 }}>
                 <strong>{s.name}</strong>{" "}
@@ -353,9 +402,16 @@ function ResumoInventario({ source, summary, domains, admin, onCriada, onErro }:
               )}
             </div>
           ))}
+          {summary.suggestions.length > SUGESTOES_VISIVEIS && (
+            <button style={{ ...btn, padding: "4px 10px", fontSize: 12, marginTop: 6 }} onClick={() => setMostrarTodas(!mostrarTodas)}>
+              {mostrarTodas ? "Mostrar só as principais" : `Mostrar todas as ${summary.suggestions.length} sugestões`}
+            </button>
+          )}
         </div>
       )}
-      <a href={`/discovery?source=${source.id}`} style={{ ...dica, color: "#2b6cb0" }}>ver runs desta source →</a>
+      <div style={{ marginTop: 6 }}>
+        <a href={`/discovery?source=${source.id}`} style={{ ...dica, color: "#2b6cb0" }}>ver runs desta source →</a>
+      </div>
     </div>
   );
 }
@@ -451,26 +507,10 @@ export default function SourcesPage() {
 
             {aberta === s.id && (
               <div style={{ marginTop: 10 }}>
-                {s.repository && (
-                  <>
-                    <h4 style={{ margin: "8px 0 4px" }}>Inventário</h4>
-                    <ResumoInventario
-                      source={s}
-                      summary={summaries[s.id]}
-                      domains={domains}
-                      admin={admin}
-                      onCriada={(m: string) => {
-                        setMsg(m);
-                        reload();
-                        loadSummary(s.id);
-                      }}
-                      onErro={setMsg}
-                    />
-                  </>
-                )}
                 {admin && s.repository && (
                   <>
-                    <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+                    <h4 style={{ margin: "8px 0 6px" }}>Ações</h4>
+                    <div style={{ display: "flex", gap: 6 }}>
                       <button style={abaStyle("inventario")} onClick={() => setAba("inventario")}>1. Inventariar</button>
                       <button style={abaStyle("campanha")} onClick={() => setAba("campanha")}>2. Discovery dirigido</button>
                       <button style={abaStyle("livre")} onClick={() => setAba("livre")}>Varredura livre</button>
@@ -484,6 +524,23 @@ export default function SourcesPage() {
                     {aba === "livre" && (
                       <RodarDiscovery source={s} domains={domains} capabilities={capabilities} onOk={(m: string) => { setMsg(m); reload(); }} onErro={setMsg} />
                     )}
+                  </>
+                )}
+                {s.repository && (
+                  <>
+                    <h4 style={{ margin: "14px 0 4px" }}>Inventário</h4>
+                    <ResumoInventario
+                      source={s}
+                      summary={summaries[s.id]}
+                      domains={domains}
+                      admin={admin}
+                      onCriada={(m: string) => {
+                        setMsg(m);
+                        reload();
+                        loadSummary(s.id);
+                      }}
+                      onErro={setMsg}
+                    />
                   </>
                 )}
                 <h4 style={{ margin: "12px 0 6px" }}>Runs de discovery</h4>
@@ -513,7 +570,7 @@ export default function SourcesPage() {
                     <div style={{ marginTop: 4 }}>
                       {r.agent === "inventory"
                         ? `${r.candidates_created} arquivo(s) inventariado(s) · ${r.questions_created} sugestão(ões)`
-                        : `${r.candidates_created} candidates · ${r.questions_created} questions · ${r.evidence_rejected} evidência(s) inválida(s)`}{" "}
+                        : `${r.candidates_created} candidates · ${r.questions_created} questions${r.reinforcements ? ` · ${r.reinforcements} reforço(s)` : ""} · ${r.evidence_rejected} evidência(s) inválida(s)`}{" "}
                       · <strong>US$ {(r.cost_usd || 0).toFixed(2)}</strong>
                       {r.commit && (
                         <span style={{ color: "#a0aec0" }}> · commit {r.commit.slice(0, 8)}</span>

@@ -6,6 +6,7 @@ verificação mecânica de evidence contra o commit → dedup → criação via 
 """
 
 import hashlib
+import logging
 import re
 import uuid
 from datetime import UTC, datetime
@@ -28,16 +29,19 @@ from app.kernel.ir.envelope import (
     LifecycleStatus,
     Origin,
     RiskLevel,
+    Significance,
 )
 from app.models.auth import Capability
 from app.models.discovery import DiscoveryRun
 from app.models.inventory import SourceFile
 from app.models.knowledge import KnowledgeAtom, Source
+from app.services import embeddings as embsvc
 from app.services import evaluation
 from app.services import inventory as invsvc
 from app.services import knowledge as ksvc
 
 SIMILARITY_THRESHOLD = 0.85
+log = logging.getLogger(__name__)
 
 
 def _capability_info(db: Session, slug: str | None) -> dict | None:
@@ -150,13 +154,15 @@ def run_discovery(
     scope_hint: str = "todo o repositório",
     max_candidates: int = 40,
     budget_usd: float | None = 5.0,
-    model: str = "opus",
-    effort: str = "high",
+    model: str | None = None,  # padrão: settings.harness_model
+    effort: str | None = None,  # padrão: settings.harness_effort
     timeout_min: int = 30,
     executable: str = "claude",
 ) -> DiscoveryRun:
     if agent not in ("code", "test"):
         raise KernelError(f"Agent de discovery desconhecido: {agent}")
+    model = model or settings.harness_model
+    effort = effort or settings.harness_effort
     source = db.get(Source, source_id)
     if source is None or not source.repository:
         raise NotFoundError("Source inexistente ou sem repositório")
@@ -254,11 +260,26 @@ def _ingest(
     existentes = _existing_statements(db, run.domain, run.capability)
     hashes = {h for _, h in ((i, _statement_hash(t)) for i, t in existentes)}
 
-    for c in payload.get("candidates", []):
+    candidatos = list(payload.get("candidates", []))
+    # Um único lote de embeddings para todos os candidates do run (dedup semântica +
+    # armazenamento). None = embeddings desligados → dedup textual de sempre.
+    textos = [f"{c.get('title', '')}. {c.get('statement', '')}".strip() for c in candidatos]
+    vetores = embsvc.embed_texts(textos) if candidatos else None
+
+    for i, c in enumerate(candidatos):
         try:
             kind, body, description = _map_body(c)
         except (KeyError, ValueError):
             run.candidates_rejected += 1
+            continue
+
+        # Régua de relevância (regra 8 do prompt): validação genérica/técnica não é
+        # conhecimento de negócio — descartada antes de existir. Sem marcação = MEDIUM.
+        significance = str(c.get("significance") or Significance.MEDIUM).upper()
+        if significance not in Significance.__members__:
+            significance = str(Significance.MEDIUM)
+        if significance == Significance.TRIVIAL:
+            run.trivial_skipped += 1
             continue
 
         # Verificação mecânica de evidence contra o commit (anti-alucinação)
@@ -292,14 +313,29 @@ def _ingest(
         if _statement_hash(statement) in hashes:
             run.duplicates_skipped += 1
             continue
-        similar = next(
-            (
-                aid
-                for aid, texto in existentes
-                if SequenceMatcher(None, norm, texto).ratio() >= SIMILARITY_THRESHOLD
-            ),
-            None,
-        )
+        similar: str | None = None
+        similaridade: float | None = None
+        metodo = "text"
+        if vetores is not None:
+            # dedup semântica: o mais próximo no domain decide entre pular, marcar ou criar
+            proximos = embsvc.similar_atoms(db, vetores[i], domain=run.domain, k=1)
+            if proximos:
+                cand, sim = proximos[0]
+                metodo = "embedding"
+                if sim >= settings.dedup_skip_similarity:
+                    run.duplicates_skipped += 1
+                    continue
+                if sim >= settings.dedup_flag_similarity:
+                    similar, similaridade = cand.id, round(sim, 4)
+        else:
+            similar = next(
+                (
+                    aid
+                    for aid, texto in existentes
+                    if SequenceMatcher(None, norm, texto).ratio() >= SIMILARITY_THRESHOLD
+                ),
+                None,
+            )
 
         try:
             atom = ksvc.create_candidate(
@@ -315,6 +351,7 @@ def _ingest(
                 risk=RiskLevel(c["risk"]) if c.get("risk") else None,
                 body=body,
                 evidence=evidencias,
+                significance=significance,
             )
         except KernelError:
             run.candidates_rejected += 1
@@ -323,16 +360,63 @@ def _ingest(
         run.candidates_created += 1
         existentes.append((atom.id, norm))
         hashes.add(_statement_hash(statement))
+        if vetores is not None:
+            embsvc.store_embedding(db, atom.id, textos[i], vetores[i])
 
         if similar:
             # §12: Potential Duplicate é conhecimento — registrado, nunca merge (P7)
             run.potential_duplicates += 1
             events.record_event(
                 db, events.POTENTIAL_DUPLICATE, actor, atom.id,
-                {"similar_to": similar, "threshold": SIMILARITY_THRESHOLD},
+                {
+                    "similar_to": similar,
+                    "method": metodo,
+                    "similarity": similaridade,
+                    "threshold": settings.dedup_flag_similarity
+                    if metodo == "embedding" else SIMILARITY_THRESHOLD,
+                },
             )
 
         evaluation.evaluate_atom(db, atom.id, trigger=f"discovery:{run.id}")
+
+    # Reforços (discovery dirigido): o agente reconheceu conhecimento já registrado e cita
+    # este arquivo como evidência adicional — fonte independente, em vez de duplicata.
+    for r in payload.get("reinforcements", []) or []:
+        atom_id = str(r.get("atom_id", "")).strip()
+        alvo = db.get(KnowledgeAtom, atom_id) if atom_id else None
+        if alvo is None or alvo.domain != run.domain or alvo.kind not in embsvc.BUSINESS_KINDS:
+            run.candidates_rejected += 1
+            continue
+        adicionou = False
+        for ev in r.get("evidence", []) or []:
+            excerpt = _verify_evidence(ws, ev)
+            if excerpt is None:
+                run.evidence_rejected += 1
+                continue
+            try:
+                ksvc.add_evidence(
+                    db, atom_id, actor=actor, origin=Origin.AGENT,
+                    type=_evidence_type(str(ev["file"]), agent),
+                    relation=EvidenceRelation.SUPPORTS,
+                    source_id=source.id,
+                    location={
+                        "file": ev["file"],
+                        "start_line": ev["start_line"],
+                        "end_line": ev["end_line"],
+                        "repository": source.repository,
+                        "commit": ws.commit,
+                    },
+                    summary=ev.get("summary") or r.get("note"),
+                    excerpt=excerpt,
+                )
+            except KernelError:
+                run.evidence_rejected += 1
+                continue
+            adicionou = True
+            run.reinforcements += 1
+        if adicionou:
+            _reopen_routing_if_unreviewed(db, atom_id, run_id=str(run.id))
+            evaluation.evaluate_atom(db, atom_id, trigger=f"discovery:{run.id}")
 
     for q in payload.get("questions", []):
         if not q.get("question"):
@@ -432,8 +516,8 @@ def run_directed_discovery(
     is_followup: bool = False,
     budget_usd: float | None = 3.0,
     max_candidates: int = 12,
-    model: str = "opus",
-    effort: str = "high",
+    model: str | None = None,  # padrão: settings.harness_model
+    effort: str | None = None,  # padrão: settings.harness_effort
     timeout_min: int = 20,
     executable: str = "claude",
 ) -> DiscoveryRun:
@@ -443,6 +527,8 @@ def run_directed_discovery(
     source = db.get(Source, source_id)
     if source is None or not source.repository:
         raise NotFoundError("Source inexistente ou sem repositório")
+    model = model or settings.harness_model
+    effort = effort or settings.harness_effort
     cap_info = _capability_info(db, capability)
     file = file.replace("\\", "/")
     prefixo = "f:" if is_followup else ""
@@ -480,13 +566,46 @@ def run_directed_discovery(
             if s.path != file
         ][:12]
 
-        prompt = prompts.directed_discovery_prompt(
+        # Recuperação vetorial: os candidates já registrados mais próximos deste arquivo
+        # entram no prompt (poucos tokens) para o agente reforçar em vez de duplicar.
+        existing: list[dict] = []
+        try:
+            embsvc.ensure_atom_embeddings(db, domain=domain)
+            consulta = " ".join(
+                p for p in (
+                    (cap_info or {}).get("name") or capability,
+                    (cap_info or {}).get("description") or "",
+                    (sf.summary if sf and sf.summary else file),
+                ) if p
+            )
+            qv = embsvc.embed_texts([consulta])
+            if qv:
+                existing = [
+                    {
+                        "atom_id": a.id, "title": a.title, "status": a.status,
+                        "statement": ((a.body or {}).get("statement") or a.description or "")[:300],
+                    }
+                    for a, _sim in embsvc.similar_atoms(
+                        db, qv[0], domain=domain, capability=capability
+                    )
+                ]
+        except Exception:  # recuperação é auxiliar: nunca derruba o run
+            log.warning("recuperação vetorial indisponível neste turno", exc_info=True)
+            existing = []
+
+        base_prompt = dict(
             domain=domain, capability=cap_info or {"slug": capability, "name": capability},
             file=file, content=conteudo, start_line=ini, end_line=fim, total_lines=total,
             max_candidates=max_candidates, file_summary=sf.summary if sf else None,
             related_files=relacionados,
         )
-        p_hash = claude_code.prompt_hash(prompt, prompts.DIRECTED_SCHEMA)
+        prompt = prompts.directed_discovery_prompt(**base_prompt, existing=existing)
+        # Idempotência pelo prompt ESTÁVEL (sem o bloco de conhecimento recuperado, que muda
+        # a cada candidate novo): mesmo arquivo/faixa/commit já sucedido não roda de novo.
+        p_hash = claude_code.prompt_hash(
+            prompts.directed_discovery_prompt(**base_prompt, existing=None),
+            prompts.DIRECTED_SCHEMA,
+        )
 
         existente = db.scalar(
             select(DiscoveryRun).where(
@@ -576,12 +695,14 @@ def run_corroboration(
     actor: str,
     max_atoms: int = 30,
     budget_usd: float | None = 5.0,
-    model: str = "opus",
-    effort: str = "high",
+    model: str | None = None,  # padrão: settings.harness_model
+    effort: str | None = None,  # padrão: settings.harness_effort
     timeout_min: int = 30,
     executable: str = "claude",
 ) -> DiscoveryRun:
     """Corroboration Agent (§88): segundo agente busca evidência independente."""
+    model = model or settings.harness_model
+    effort = effort or settings.harness_effort
     source = db.get(Source, source_id)
     if source is None or not source.repository:
         raise NotFoundError("Source inexistente ou sem repositório")

@@ -152,6 +152,29 @@ def run(op: RunOptions) -> RunResult:
     return res
 
 
+def probe(logs_dir: Path, executable: str | list[str] = "claude") -> RunResult:
+    """Sonda mínima da franquia: um turno sem ferramentas e com budget irrisório.
+    Serve para detectar que os créditos voltaram (ou que a conta foi trocada)."""
+    from app.config import settings
+
+    return _run_once(
+        RunOptions(
+            workdir=logs_dir if logs_dir.is_dir() else Path.cwd(),
+            prompt="Responda apenas com a palavra OK.",
+            logs_dir=logs_dir,
+            label="probe-franquia",
+            model=settings.harness_probe_model,
+            effort="low",
+            budget_usd=0.05,
+            timeout_min=3,
+            read_only=True,
+            tools=[],
+            executable=executable,
+        ),
+        resume_id=None,
+    )
+
+
 def _run_once(op: RunOptions, resume_id: str | None) -> RunResult:
     args = [*_exe_list(op.executable), "-p", "--dangerously-skip-permissions",
             "--output-format", "stream-json", "--verbose"]

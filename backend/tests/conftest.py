@@ -2,6 +2,7 @@ import os
 
 # Ambiente de teste ANTES de qualquer import de app.*
 os.environ.setdefault("JWT_SECRET", "test-secret-com-32-bytes-ou-mais-0123456789")
+os.environ.setdefault("EMBEDDING_PROVIDER", "fake")  # nunca chamar a OpenRouter em teste
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+psycopg://bsp:bsp@localhost:5432/bsp_test"
 )
@@ -47,6 +48,7 @@ def client():
 
     with engine.begin() as conn:
         conn.execute(text("create extension if not exists pg_trgm"))
+        conn.execute(text("create extension if not exists vector"))
     Base.metadata.drop_all(engine)
     with engine.begin() as conn:
         conn.execute(text("drop type if exists role cascade"))

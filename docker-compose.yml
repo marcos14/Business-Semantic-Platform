@@ -17,6 +17,7 @@ services:
 
   api:
     build: ./backend
+    env_file: .env  # modelos por finalidade (OPENROUTER_MODEL, EMBEDDING_MODEL, HARNESS_*)
     environment:
       DATABASE_URL: postgresql+psycopg://bsp:bsp@db:5432/bsp
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
@@ -33,6 +34,7 @@ services:
 
   worker:
     build: ./backend
+    env_file: .env  # modelos por finalidade (OPENROUTER_MODEL, EMBEDDING_MODEL, HARNESS_*)
     environment:
       DATABASE_URL: postgresql+psycopg://bsp:bsp@db:5432/bsp
       CANONICAL_REPO_PATH: /canonical-repo

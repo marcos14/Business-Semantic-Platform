@@ -112,6 +112,7 @@ def _atom_out(atom: KnowledgeAtom) -> dict:
         "classification": atom.classification,
         "confidence": atom.confidence,
         "risk": atom.risk,
+        "significance": atom.significance,
         "scope": atom.scope,
         "effective": atom.effective,
         "body": atom.body,

@@ -109,11 +109,13 @@ def run_inventory_batch(
     actor: str,
     batch_id: uuid.UUID | None = None,
     budget_usd: float | None = 3.0,
-    model: str = "opus",
-    effort: str = "medium",
+    model: str | None = None,  # padrão: settings.harness_model
+    effort: str | None = None,  # padrão: settings.harness_inventory_effort
     timeout_min: int = 30,
     executable: str = "claude",
 ) -> DiscoveryRun:
+    model = model or settings.harness_model
+    effort = effort or settings.harness_inventory_effort
     source = db.get(Source, source_id)
     if source is None or not source.repository:
         raise NotFoundError("Source inexistente ou sem repositório")

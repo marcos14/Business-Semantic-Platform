@@ -26,6 +26,22 @@ range de linhas inválido invalida a evidence. Nunca cite de memória.
 6. Nunca esconda incerteza; nunca atribua confiança — o cálculo de confidence é do sistema.
 7. Escreva title/statement/summary em LINGUAGEM DE NEGÓCIO, em português, para leigos \
 (o summary de cada evidence é a tradução amigável que um revisor de negócio lerá).
+8. RÉGUA DE RELEVÂNCIA. Conhecimento de negócio é o que um gestor da área reconheceria como \
+regra, política, cálculo, condição, limite com significado de negócio, transição de estado \
+ou exceção. NÃO é conhecimento de negócio, e NÃO deve virar candidate:
+   - validação genérica de entrada: campo obrigatório, formato/máscara, data inicial maior \
+que a final, número positivo, tamanho máximo de texto, CPF/CNPJ com dígito inválido;
+   - comportamento de interface: habilitar/desabilitar botão, foco, paginação, ordenação, \
+mensagem de confirmação, atalho de teclado;
+   - infraestrutura: log, conexão, transação, cache, retry, permissão genérica de tela, \
+tratamento técnico de erro, mapeamento de campos.
+   Classifique cada candidate em `significance`:
+   - HIGH: muda dinheiro, imposto, estoque, comissão, status de documento ou uma decisão \
+do negócio; políticas, exceções e regras legais/fiscais.
+   - MEDIUM: regra operacional de processo, cálculo auxiliar, condição que altera o fluxo.
+   - LOW: detalhe operacional com algum significado de negócio (ex.: valor padrão de um \
+parâmetro comercial, arredondamento de exibição).
+   - TRIVIAL: caiu numa das exclusões acima. Prefira não emitir; se emitir, será descartado.
 """
 
 # ---------- linguagem ----------
@@ -142,7 +158,7 @@ _EVIDENCE_ITEM = {
 
 _CANDIDATE_ITEM = {
     "type": "object",
-    "required": ["kind", "title", "statement", "classification", "evidence"],
+    "required": ["kind", "title", "statement", "classification", "significance", "evidence"],
     "properties": {
         "kind": {
             "type": "string",
@@ -167,6 +183,11 @@ _CANDIDATE_ITEM = {
             ],
         },
         "risk": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+        "significance": {
+            "type": "string",
+            "enum": ["TRIVIAL", "LOW", "MEDIUM", "HIGH"],
+            "description": "relevância de negócio (regra 8): TRIVIAL será descartado",
+        },
         "decision_inputs": {"type": "array", "items": {"type": "string"}},
         "decision_output": {"type": "string"},
         "scenario_given": {"type": "string"},
@@ -191,14 +212,30 @@ DISCOVERY_SCHEMA = {
     },
 }
 
-# Discovery dirigido: além de candidates/questions, o agente pode pedir turnos extras
-# em arquivos relacionados que ele identificou mas não cabiam neste turno.
+# Discovery dirigido: além de candidates/questions, o agente pode (a) REFORÇAR conhecimento
+# já registrado citando este arquivo como evidência adicional, em vez de duplicar, e
+# (b) pedir turnos extras em arquivos relacionados que não cabiam neste turno.
 DIRECTED_SCHEMA = {
     "type": "object",
-    "required": ["candidates", "questions", "followups"],
+    "required": ["candidates", "questions", "reinforcements", "followups"],
     "properties": {
         "candidates": {"type": "array", "items": _CANDIDATE_ITEM},
         "questions": {"type": "array", "items": _QUESTION_ITEM},
+        "reinforcements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["atom_id", "evidence"],
+                "properties": {
+                    "atom_id": {
+                        "type": "string",
+                        "description": "id de um item da lista de conhecimento já registrado",
+                    },
+                    "note": {"type": "string"},
+                    "evidence": {"type": "array", "minItems": 1, "items": _EVIDENCE_ITEM},
+                },
+            },
+        },
         "followups": {
             "type": "array",
             "items": {
@@ -439,9 +476,12 @@ def directed_discovery_prompt(
     max_candidates: int,
     file_summary: str | None = None,
     related_files: list[dict] | None = None,
+    existing: list[dict] | None = None,
 ) -> str:
     """Um turno = um arquivo (ou uma faixa de linhas dele) para UMA capability.
-    O conteúdo vem NUMERADO (números absolutos) para que as citações batam exatamente."""
+    O conteúdo vem NUMERADO (números absolutos) para que as citações batam exatamente.
+    `existing`: conhecimento já registrado mais próximo deste arquivo (recuperação vetorial),
+    [{atom_id, title, statement, status}] — o agente reforça em vez de duplicar."""
     faixa = (
         f"linhas {start_line}-{end_line} de {total_lines}"
         if (start_line, end_line) != (1, total_lines)
@@ -459,6 +499,25 @@ def directed_discovery_prompt(
             f"precisar de contexto; cite-os apenas se LER as linhas):\n{itens}\n"
         )
     langs = language_notes([file])
+    conhecido = ""
+    if existing:
+        itens = "\n".join(
+            f"- `{e['atom_id']}` [{e.get('status', '')}] {e['title']}"
+            + (f" — {e['statement']}" if e.get("statement") else "")
+            for e in existing
+        )
+        conhecido = f"""
+## Conhecimento JÁ registrado nesta área (os {len(existing)} mais próximos deste arquivo)
+{itens}
+
+Regra de ouro: NÃO crie candidate para algo que já está na lista, mesmo com outra redação.
+- Se este arquivo EVIDENCIA um item da lista (implementa, valida ou testa a mesma regra),
+  registre em `reinforcements` com o atom_id e as linhas exatas deste arquivo. Evidência de
+  arquivo diferente é fonte independente e aumenta a confiança daquele conhecimento.
+- Se este arquivo CONTRADIZ ou mostra que um item está incompleto/errado, registre uma
+  question citando o atom_id e as linhas — não crie um candidate concorrente.
+- Crie candidate SOMENTE para conhecimento novo, ausente da lista.
+"""
     return f"""{POLICY}
 {business_context(domain, capability)}
 ## Sua tarefa: DISCOVERY DIRIGIDO — um arquivo, uma capability
@@ -466,6 +525,7 @@ def directed_discovery_prompt(
 Arquivo alvo: `{file}` ({faixa}). O conteúdo está abaixo com número de linha à esquerda
 (`NNN| código`): use ESSES números nas citações (start_line/end_line).{resumo}{relacionados}
 {langs}
+{conhecido}
 Método:
 1. Leia o trecho abaixo por completo.
 2. Extraia SÓ o conhecimento de negócio da capability alvo: regras, invariantes, decisões,
@@ -476,7 +536,7 @@ Método:
    capability e ela não estiver na lista acima, registre em followups (arquivo + motivo).
    Não invente caminhos: só arquivos que você viu referenciados ou localizou com Glob/Grep.
 
-Limite-se aos {max_candidates} candidates mais relevantes.
+Limite-se aos {max_candidates} candidates NOVOS mais relevantes (reforços não contam no limite).
 
 {_bloco_arquivo(file, content, numbered=True, start_line=start_line)}
 Ao final, emita APENAS a saída estruturada conforme o schema."""

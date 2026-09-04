@@ -66,6 +66,27 @@ export const StatusBadge = ({ status }: { status: string }) => (
 export const RiskBadge = ({ risk }: { risk: string | null }) =>
   risk ? <Badge text={`risco ${risk}`} color={RISK_COLOR[risk]} /> : null;
 
+const SIGNIFICANCE_LABEL: Record<string, string> = {
+  HIGH: "relevância alta",
+  MEDIUM: "relevância média",
+  LOW: "relevância baixa",
+  TRIVIAL: "trivial",
+};
+const SIGNIFICANCE_COLOR: Record<string, string> = {
+  HIGH: "#2b6cb0",
+  MEDIUM: "#4a5568",
+  LOW: "#a0aec0",
+  TRIVIAL: "#a0aec0",
+};
+
+export const SignificanceBadge = ({ significance }: { significance?: string | null }) =>
+  significance ? (
+    <Badge
+      text={SIGNIFICANCE_LABEL[significance] ?? significance}
+      color={SIGNIFICANCE_COLOR[significance]}
+    />
+  ) : null;
+
 export function ConfidenceBar({ value }: { value: number | null }) {
   if (value === null || value === undefined) return <span style={{ color: "#a0aec0" }}>—</span>;
   const pct = Math.round(value * 100);
@@ -172,6 +193,9 @@ function Nav() {
       </Link>
       <Link href="/admin" style={link}>
         Admin
+      </Link>
+      <Link href="/manual" style={{ ...link, marginLeft: 8, border: "1px solid #4a5568" }}>
+        Manual
       </Link>
       <Link href="/notifications" style={link}>
         Notificações{unread > 0 ? ` (${unread})` : ""}

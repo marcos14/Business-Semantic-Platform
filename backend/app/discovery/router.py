@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.db import get_db
-from app.jobs import plan_inventory_job, run_directed_job, run_discovery_job
+from app.jobs import (
+    plan_inventory_job,
+    release_scheduled,
+    run_directed_job,
+    run_discovery_job,
+)
 from app.kernel.errors import InvalidTransitionError, KernelError, NotFoundError
 from app.models.auth import Role, User
 from app.models.discovery import DiscoveryRun
@@ -58,6 +63,8 @@ def _out(r: DiscoveryRun) -> dict:
         "evidence_rejected": r.evidence_rejected,
         "duplicates_skipped": r.duplicates_skipped,
         "potential_duplicates": r.potential_duplicates,
+        "reinforcements": r.reinforcements,
+        "trivial_skipped": r.trivial_skipped,
         "workspace_clean": r.workspace_clean,
         "error": r.error,
         "created_by": r.created_by,
@@ -121,7 +128,7 @@ class InventoryIn(BaseModel):
     )
     max_files: int | None = Field(default=None, ge=1, le=20000)
     only_missing: bool = True
-    budget_usd: float = Field(default=3.0, gt=0, le=20, description="por lote")
+    budget_usd: float = Field(default=3.0, gt=0, le=50, description="por lote")
 
 
 class CampaignIn(BaseModel):
@@ -130,8 +137,8 @@ class CampaignIn(BaseModel):
     capability: str
     min_relevance: int = Field(default=2, ge=1, le=3)
     max_files: int | None = Field(default=None, ge=1, le=5000)
-    budget_usd: float = Field(default=3.0, gt=0, le=20, description="por arquivo/faixa")
-    max_candidates: int = Field(default=12, ge=1, le=40)
+    budget_usd: float = Field(default=3.0, gt=0, le=50, description="por arquivo/faixa (um turno)")
+    max_candidates: int = Field(default=12, ge=1, le=100)
 
 
 def _source_ou_404(db: Session, source_id: uuid.UUID) -> Source:
@@ -325,6 +332,14 @@ _QUEUE_SUMMARY_SQL = text(
     """
 )
 _WORKERS_SQL = text("select id, last_heartbeat from procrastinate_workers order by id")
+_FUTURE_SQL = text(
+    """
+    select count(*) as n, min(scheduled_at) as proximo
+    from procrastinate_jobs
+    where status = 'todo' and scheduled_at > now()
+      and (cast(:queue as varchar) is null or queue_name = :queue)
+    """
+)
 _CANCEL_SQL = text(
     "update procrastinate_jobs set status = 'cancelled' "
     "where id = :id and status = 'todo' returning id"
@@ -364,12 +379,14 @@ def list_queue(
         jobs = db.execute(_QUEUE_JOBS_SQL, params).all()
         summary = db.execute(_QUEUE_SUMMARY_SQL, {"queue": params["queue"]}).all()
         workers = db.execute(_WORKERS_SQL).all()
+        futuro = db.execute(_FUTURE_SQL, {"queue": params["queue"]}).first()
     except ProgrammingError:
         # schema do procrastinate ainda não aplicado (worker nunca subiu)
         db.rollback()
         return {
             "schema_missing": True, "queue": queue, "jobs": [], "by_status": {},
             "pending": 0, "running": 0, "workers": [], "workers_alive": 0,
+            "scheduled_future": 0, "next_scheduled_at": None,
         }
     now = datetime.now(UTC)
     limite = now - timedelta(seconds=WORKER_ALIVE_SECONDS)
@@ -391,8 +408,35 @@ def list_queue(
         "running": by_status.get("doing", 0),
         "workers": workers_out,
         "workers_alive": sum(1 for w in workers_out if w["alive"]),
+        # jobs reagendados para depois (tipicamente esperando o reset da franquia)
+        "scheduled_future": int(futuro.n or 0) if futuro else 0,
+        "next_scheduled_at": (
+            futuro.proximo.isoformat() if futuro and futuro.proximo else None
+        ),
         "server_time": now.isoformat(),
     }
+
+
+class ReleaseIn(BaseModel):
+    batch_id: str | None = None
+
+
+@router.post("/queue/release")
+def release_scheduled_endpoint(
+    body: ReleaseIn | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require(Role.ADMINISTRATOR)),
+    queue: str | None = Query(default="discovery"),
+) -> dict:
+    """Antecipa para AGORA os jobs pendentes agendados para o futuro (ex.: esperando o
+    reset da franquia de uma conta que você já trocou). Opcionalmente só de uma campanha."""
+    batch = body.batch_id if body else None
+    try:
+        ids = release_scheduled(db, queue=queue or None, batch_id=batch)
+    except ProgrammingError:
+        db.rollback()
+        return {"released": 0, "schema_missing": True}
+    return {"released": len(ids)}
 
 
 @router.post("/queue/{job_id}/cancel")

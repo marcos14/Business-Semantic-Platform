@@ -106,6 +106,33 @@ antes e depois do run — qualquer alteração marca o run como "workspace sujo"
 `DISCOVERY_WORKSPACE_MODE=clone` para voltar ao clone descartável por run. A Source pode
 apontar para um subdiretório do repositório git (ex.: `<repo>/source`).
 
+Régua de relevância (`significance`): o agente classifica cada candidate em TRIVIAL, LOW,
+MEDIUM ou HIGH (regra 8 do prompt). TRIVIAL — validação genérica de entrada, comportamento de
+interface, infraestrutura — é descartado na ingestão. LOW nunca vai a revisão humana: auto-aprova
+se a confiança passar de `LOW_SIGNIFICANCE_THRESHOLD` (0,60) ou fica em CORROBORATING
+aguardando evidência. MEDIUM e HIGH seguem o fluxo normal de confiança e política.
+
+Modelos, um por finalidade, definidos no `.env` (ver `.env.example`): `OPENROUTER_MODEL`
+para análises via API (tradução de evidence, conflitos, decomposição, avaliador),
+`EMBEDDING_MODEL` para embeddings, e `HARNESS_MODEL` / `HARNESS_EFFORT` /
+`HARNESS_INVENTORY_EFFORT` / `HARNESS_PROBE_MODEL` para o harness Claude Code, que usa a
+assinatura do `claude` logado e não a OpenRouter.
+
+Recuperação semântica (pgvector): cada candidate ganha um embedding
+(`EMBEDDING_PROVIDER=openrouter`, modelo `openai/text-embedding-3-small`). Antes de cada
+turno dirigido, os `RETRIEVAL_TOP_K` candidates mais próximos do arquivo entram no prompt e o
+agente **reforça** o conhecimento existente com evidência do arquivo atual (`reinforcements`)
+em vez de duplicá-lo. Na ingestão, similaridade acima de `DEDUP_SKIP_SIMILARITY` descarta o
+candidate e acima de `DEDUP_FLAG_SIMILARITY` marca potencial duplicata. Backfill:
+`uv run python -m app.discovery_cli embed --domain <domain>`. `EMBEDDING_PROVIDER=off`
+volta à deduplicação textual.
+
+Franquia do harness: um run que bate no limite reagenda o job para o horário de reset
+informado na mensagem. A cada 10 minutos o job periódico `jobs.probe_limit` (fila
+`discovery`, worker no host) faz uma chamada mínima ao `claude` e, se os créditos voltaram
+ou a conta foi trocada, libera todos os jobs agendados. O botão "Liberar agora" na tela
+Discovery (ou `POST /discovery/queue/release`) faz o mesmo sob demanda.
+
 Outras variáveis: `DISCOVERY_SOURCE_EXTENSIONS` (o que conta como fonte),
 `INVENTORY_BATCH_CHARS` (tamanho do lote), `DISCOVERY_CHUNK_LINES` (faixa por turno),
 `DISCOVERY_FOLLOWUPS_MAX` (follow-ups por campanha).

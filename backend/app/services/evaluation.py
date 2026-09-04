@@ -10,12 +10,14 @@ import json
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.kernel import events
 from app.kernel.confidence import EvidenceFact, compute_score
 from app.kernel.ir.envelope import EvidenceRelation, LifecycleStatus
 from app.kernel.linter import lint_db
 from app.kernel.policy import (
     AUTO_APPROVED,
+    AWAIT_EVIDENCE,
     AtomScope,
     PolicyView,
     resolve,
@@ -162,6 +164,8 @@ def evaluate_atom(
         has_conflict=_has_conflict(db, atom.id, facts),
         risk=atom.risk,
         lint_errors=lint_errors,
+        significance=atom.significance,
+        low_significance_threshold=settings.low_significance_threshold,
     )
 
     # Audit do §87: confidence, threshold, evidence, policy, versões, timestamp
@@ -211,6 +215,17 @@ def evaluate_atom(
             reason="auto-approval por política (§86)",
             expected_lock_version=atom.lock_version,
             authority_granted=True,
+        )
+    elif decision.outcome == AWAIT_EVIDENCE:
+        # Régua de relevância: baixa relevância não ocupa revisor. Fica em CORROBORATING;
+        # nova evidência (corroboração/reforço) dispara reavaliação automática.
+        atom = ksvc.change_status(
+            db,
+            atom.id,
+            actor=actor,
+            new_status=LifecycleStatus.CORROBORATING,
+            reason=decision.reason,
+            expected_lock_version=atom.lock_version,
         )
     else:
         atom = ksvc.change_status(

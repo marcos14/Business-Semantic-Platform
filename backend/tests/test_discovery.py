@@ -162,6 +162,7 @@ def test_discovery_ingestao_completa(client, fonte, monkeypatch, tmp_path):
 
     assert run.status == "succeeded"
     assert run.candidates_created == 1  # válida
+    assert run.trivial_skipped == 1  # "data inicial > final": validação genérica, fora da régua
     assert run.candidates_rejected == 1  # citação alucinada descartou o candidate
     assert run.evidence_rejected == 1
     assert run.duplicates_skipped == 1  # duplicata exata

@@ -14,7 +14,16 @@ TRANSITIONS: dict[S, frozenset[S]] = {
     ),
     S.CORROBORATING: frozenset({S.READY_FOR_EVALUATION, S.CONFLICTED, S.CANDIDATE}),
     S.READY_FOR_EVALUATION: frozenset(
-        {S.AUTO_APPROVED, S.NEEDS_HUMAN_REVIEW, S.CONFLICTED, S.UNKNOWN, S.REJECTED}
+        {
+            S.AUTO_APPROVED,
+            S.NEEDS_HUMAN_REVIEW,
+            S.CONFLICTED,
+            S.UNKNOWN,
+            S.REJECTED,
+            # régua de relevância: baixa relevância sem confiança aguarda evidência
+            # em vez de ocupar um revisor humano
+            S.CORROBORATING,
+        }
     ),
     S.AUTO_APPROVED: frozenset({S.CANONICAL}),
     # → CORROBORATING: nova evidência de corroboração reabre o ciclo automático

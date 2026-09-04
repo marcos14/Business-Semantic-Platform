@@ -63,6 +63,23 @@ class RiskLevel(enum.StrEnum):
     CRITICAL = "CRITICAL"
 
 
+class Significance(enum.StrEnum):
+    """Relevância de negócio do conhecimento — a régua do que merece atenção humana.
+
+    TRIVIAL: validação genérica/técnica (campo obrigatório, data inicial > final, máscara,
+             log, UI). Não é conhecimento de negócio: descartado na ingestão.
+    LOW:     detalhe operacional com algum significado de negócio. Nunca vai a humano:
+             auto-aprova com régua reduzida ou aguarda evidência.
+    MEDIUM:  regra operacional, cálculo auxiliar, condição de processo. Fluxo normal.
+    HIGH:    muda dinheiro, imposto, estoque, status ou decisão; políticas e exceções.
+    """
+
+    TRIVIAL = "TRIVIAL"
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 class Origin(enum.StrEnum):
     AGENT = "agent"
     HUMAN = "human"

@@ -104,6 +104,7 @@ def main() -> int:
                         "statement": f"Regra de negócio extraída de {alvo} nas linhas {ini}-{fim}.",
                         "classification": "OBSERVED_BEHAVIOR",
                         "risk": "LOW",
+                        "significance": os.environ.get("FAKE_SIGNIFICANCE", "MEDIUM"),
                         "evidence": [
                             {"file": alvo, "start_line": ini, "end_line": fim,
                              "summary": "trecho lido no turno dirigido"}
@@ -111,6 +112,20 @@ def main() -> int:
                     }
                 ],
                 "questions": [],
+                "reinforcements": (
+                    [
+                        {
+                            "atom_id": os.environ["FAKE_REINFORCE"],
+                            "note": "este arquivo também implementa a regra",
+                            "evidence": [
+                                {"file": alvo, "start_line": ini, "end_line": fim,
+                                 "summary": "mesma regra, outro arquivo"}
+                            ],
+                        }
+                    ]
+                    if os.environ.get("FAKE_REINFORCE")
+                    else []
+                ),
                 "followups": [
                     {"file": os.environ.get("FAKE_FOLLOWUP", "billing_test.go"),
                      "reason": "testes da regra"},
@@ -150,10 +165,23 @@ def main() -> int:
             "candidates": [
                 {
                     "kind": "rule",
+                    "title": "Data inicial não pode ser maior que a final",
+                    "statement": "Nos filtros de consulta a data inicial não pode ser maior "
+                    "que a data final.",
+                    "classification": "OBSERVED_BEHAVIOR",
+                    "significance": "TRIVIAL",
+                    "evidence": [
+                        {"file": "billing.go", "start_line": 1, "end_line": 2,
+                         "summary": "validação genérica de formulário"}
+                    ],
+                },
+                {
+                    "kind": "rule",
                     "title": "Boleto vencido acumula juros diários",
                     "statement": "Um boleto vencido acumula juros de 1% ao dia sobre o valor.",
                     "classification": "OBSERVED_BEHAVIOR",
                     "risk": "MEDIUM",
+                    "significance": "HIGH",
                     "evidence": [
                         {
                             "file": "billing.go",

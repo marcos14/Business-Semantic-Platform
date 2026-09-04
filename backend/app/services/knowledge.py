@@ -129,6 +129,7 @@ def create_candidate(
     atom_id: str | None = None,
     initial_status: LifecycleStatus = LifecycleStatus.CANDIDATE,
     evidence: list[dict] | None = None,
+    significance: str | None = None,
 ) -> KnowledgeAtom:
     """Cria um candidate no Discovery Space.
 
@@ -173,6 +174,7 @@ def create_candidate(
         status=str(initial_status),
         classification=str(classification) if classification else None,
         risk=str(risk) if risk else None,
+        significance=str(significance) if significance else None,
         scope=scope,
         effective=effective,
         body=normalized_body,

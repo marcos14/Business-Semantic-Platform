@@ -66,6 +66,8 @@ class KnowledgeAtom(Base):
     classification: Mapped[str | None] = mapped_column(String(40), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     risk: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Relevância de negócio (Significance): TRIVIAL nunca é gravado; LOW não vai a humano.
+    significance: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     scope: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     effective: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     body: Mapped[dict] = mapped_column(JSONB, default=dict)
