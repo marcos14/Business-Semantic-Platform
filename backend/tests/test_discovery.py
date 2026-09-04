@@ -161,8 +161,8 @@ def test_discovery_ingestao_completa(client, fonte, monkeypatch, tmp_path):
         )
 
     assert run.status == "succeeded"
-    assert run.candidates_created == 1  # válida
-    assert run.trivial_skipped == 1  # "data inicial > final": validação genérica, fora da régua
+    assert run.candidates_created == 2  # a regra de juros + o comportamento sistêmico
+    assert run.systemic_created == 1  # "data inicial > final": objetivo, aprovado sem humano
     assert run.candidates_rejected == 1  # citação alucinada descartou o candidate
     assert run.evidence_rejected == 1
     assert run.duplicates_skipped == 1  # duplicata exata
@@ -179,12 +179,22 @@ def test_discovery_ingestao_completa(client, fonte, monkeypatch, tmp_path):
     with SessionLocal() as db:
         atom = db.scalar(
             select(KnowledgeAtom).where(
-                KnowledgeAtom.domain == "disc", KnowledgeAtom.kind == "rule"
+                KnowledgeAtom.domain == "disc", KnowledgeAtom.kind == "rule",
+                KnowledgeAtom.title == "Boleto vencido acumula juros diários",
             )
         )
         assert atom is not None
         assert atom.origin == "agent"
+        assert atom.significance == "HIGH"
         assert atom.status == "NEEDS_HUMAN_REVIEW"  # 1 evidência → roteado p/ humano
+        sistemico = db.scalar(
+            select(KnowledgeAtom).where(
+                KnowledgeAtom.domain == "disc",
+                KnowledgeAtom.title == "Data inicial não pode ser maior que a final",
+            )
+        )
+        assert sistemico is not None and sistemico.significance == "SYSTEMIC"
+        assert sistemico.status == "CANONICAL"  # critério sistêmico: sem revisão humana
         assert atom.confidence is not None
         ev = db.scalar(
             select(Evidence)
@@ -253,7 +263,9 @@ def test_corroboracao_adiciona_evidencia_independente(client, fonte, monkeypatch
         )
         atom = db.scalar(
             select(KnowledgeAtom).where(
-                KnowledgeAtom.domain == "disc", KnowledgeAtom.kind == "rule"
+                KnowledgeAtom.domain == "disc", KnowledgeAtom.kind == "rule",
+                # o sistêmico já é CANONICAL (não é alvo de corroboração): usar a regra de negócio
+                KnowledgeAtom.title == "Boleto vencido acumula juros diários",
             )
         )
         atom_id = atom.id

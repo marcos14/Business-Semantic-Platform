@@ -512,7 +512,7 @@ export default function DiscoveryPage() {
                   {r.reinforcements > 0 && <span style={{ color: "#276749" }} title="evidências adicionadas a candidates já existentes (fonte independente)">{r.reinforcements} reforço(s) · </span>}
                   {r.candidates_rejected} rejeitados · {r.duplicates_skipped} duplicados ·{" "}
                   {r.potential_duplicates > 0 && <>{r.potential_duplicates} potencial(is) duplicata(s) · </>}
-                  {r.trivial_skipped > 0 && <span title="validações genéricas/técnicas que o agente marcou como TRIVIAL e o kernel descartou">{r.trivial_skipped} trivial(is) descartado(s) · </span>}
+                  {r.systemic_created > 0 && <span title="comportamentos objetivos (validação de entrada, interface, infraestrutura): gravados e aprovados sem revisão humana">{r.systemic_created} sistêmico(s) · </span>}
                   {r.evidence_rejected} evidência(s) inválida(s) · {r.num_turns} turno(s)
                 </>
               )}

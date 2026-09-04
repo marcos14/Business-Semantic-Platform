@@ -106,11 +106,16 @@ antes e depois do run — qualquer alteração marca o run como "workspace sujo"
 `DISCOVERY_WORKSPACE_MODE=clone` para voltar ao clone descartável por run. A Source pode
 apontar para um subdiretório do repositório git (ex.: `<repo>/source`).
 
-Régua de relevância (`significance`): o agente classifica cada candidate em TRIVIAL, LOW,
-MEDIUM ou HIGH (regra 8 do prompt). TRIVIAL — validação genérica de entrada, comportamento de
-interface, infraestrutura — é descartado na ingestão. LOW nunca vai a revisão humana: auto-aprova
-se a confiança passar de `LOW_SIGNIFICANCE_THRESHOLD` (0,60) ou fica em CORROBORATING
-aguardando evidência. MEDIUM e HIGH seguem o fluxo normal de confiança e política.
+Régua de relevância (`significance`): o agente classifica cada candidate em SYSTEMIC, LOW,
+MEDIUM ou HIGH (regra 8 do prompt). SYSTEMIC — comportamento objetivo e verificável no código:
+validação genérica de entrada, comportamento de interface, infraestrutura — é gravado (é
+conhecimento útil para reescrever/testar) e aprovado sem revisão humana, porque a evidência
+verificada basta; só conflito, erro de linter ou risco crítico o levam a gente. LOW nunca vai a
+revisão humana: auto-aprova se a confiança passar de `LOW_SIGNIFICANCE_THRESHOLD` (0,60) ou fica
+em CORROBORATING aguardando evidência. MEDIUM e HIGH seguem o fluxo normal de confiança e
+política. Pendentes criados antes da régua: botão "Aplicar régua aos pendentes" na Inbox
+(`POST /discovery/triage`, ou `discovery_cli triage [--dry-run]`) classifica-os com o modelo de
+análise (`OPENROUTER_MODEL`) e re-roteia SYSTEMIC/LOW sem voto humano.
 
 Modelos, um por finalidade, definidos no `.env` (ver `.env.example`): `OPENROUTER_MODEL`
 para análises via API (tradução de evidence, conflitos, decomposição, avaliador),

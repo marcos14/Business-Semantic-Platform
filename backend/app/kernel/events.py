@@ -24,6 +24,7 @@ POTENTIAL_DUPLICATE = "PotentialDuplicateDetected"
 CONFIDENCE_CHANGED = "ConfidenceChanged"
 CONFLICT_DETECTED = "ConflictDetected"
 CANONICAL_KNOWLEDGE_CHALLENGED = "CanonicalKnowledgeChallenged"
+SIGNIFICANCE_ASSIGNED = "SignificanceAssigned"  # régua de relevância (triagem/agente)
 
 
 def record_event(

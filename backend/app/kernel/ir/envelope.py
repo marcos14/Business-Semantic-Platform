@@ -64,17 +64,20 @@ class RiskLevel(enum.StrEnum):
 
 
 class Significance(enum.StrEnum):
-    """Relevância de negócio do conhecimento — a régua do que merece atenção humana.
+    """Relevância do conhecimento — a régua do que merece atenção humana.
 
-    TRIVIAL: validação genérica/técnica (campo obrigatório, data inicial > final, máscara,
-             log, UI). Não é conhecimento de negócio: descartado na ingestão.
-    LOW:     detalhe operacional com algum significado de negócio. Nunca vai a humano:
-             auto-aprova com régua reduzida ou aguarda evidência.
-    MEDIUM:  regra operacional, cálculo auxiliar, condição de processo. Fluxo normal.
-    HIGH:    muda dinheiro, imposto, estoque, status ou decisão; políticas e exceções.
+    SYSTEMIC: comportamento objetivo e verificável no código, sem decisão de negócio embutida:
+              validação genérica de entrada (campo obrigatório, máscara, data inicial > final),
+              comportamento de interface, infraestrutura. É conhecimento útil (quem reescrever
+              ou testar precisa dele) e é gravado — mas a evidência verificada basta: aprovação
+              automática, nunca revisão humana.
+    LOW:      detalhe operacional com algum significado de negócio. Nunca vai a humano:
+              auto-aprova com régua reduzida ou aguarda evidência.
+    MEDIUM:   regra operacional, cálculo auxiliar, condição de processo. Fluxo normal.
+    HIGH:     muda dinheiro, imposto, estoque, status ou decisão; políticas e exceções.
     """
 
-    TRIVIAL = "TRIVIAL"
+    SYSTEMIC = "SYSTEMIC"
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"

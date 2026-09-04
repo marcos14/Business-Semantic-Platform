@@ -64,7 +64,7 @@ def _out(r: DiscoveryRun) -> dict:
         "duplicates_skipped": r.duplicates_skipped,
         "potential_duplicates": r.potential_duplicates,
         "reinforcements": r.reinforcements,
-        "trivial_skipped": r.trivial_skipped,
+        "systemic_created": r.systemic_created,
         "workspace_clean": r.workspace_clean,
         "error": r.error,
         "created_by": r.created_by,
@@ -115,6 +115,32 @@ def list_runs(
         if omitir:
             stmt = stmt.where(DiscoveryRun.status.not_in(omitir))
     return [_out(r) for r in db.scalars(stmt)]
+
+
+# ---------- Triagem de relevância dos pendentes ----------
+
+
+class TriageIn(BaseModel):
+    domain: str | None = None
+    limit: int = Field(default=200, ge=1, le=1000)
+    apply: bool = Field(default=True, description="false = só classifica e conta, sem mexer")
+
+
+@router.post("/triage")
+def triage_pending_endpoint(
+    body: TriageIn | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require(Role.ADMINISTRATOR)),
+) -> dict:
+    """Aplica a régua de relevância aos candidates que esperam revisão humana sem voto:
+    classifica via modelo de análise (OPENROUTER_MODEL) e re-roteia SYSTEMIC/LOW."""
+    from app.services.triage import triage_pending
+
+    body = body or TriageIn()
+    try:
+        return triage_pending(db, domain=body.domain, limit=body.limit, apply=body.apply)
+    except RuntimeError as e:  # provider sem chave etc.
+        raise KernelError(f"Triagem indisponível: {e}") from None
 
 
 # ---------- Inventário e campanhas (muitos runs pequenos) ----------

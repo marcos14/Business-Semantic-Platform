@@ -131,9 +131,13 @@ def route(
 ) -> RouteDecision:
     """Decisão do §86: todas as condições precisam passar para auto-approval.
 
-    Régua de relevância: um candidate de significance LOW usa o menor entre o threshold da
-    política e `low_significance_threshold`; se ainda assim não passar, vai para
-    AWAIT_EVIDENCE em vez de ocupar um revisor humano (salvo conflito ou risco crítico)."""
+    Régua de relevância:
+    - SYSTEMIC (comportamento objetivo, verificável no código): a evidência verificada basta.
+      Aprova sem olhar confiança nem política de revisão obrigatória — salvo conflito, erro
+      de linter ou risco crítico, que ainda exigem gente.
+    - LOW usa o menor entre o threshold da política e `low_significance_threshold`; se ainda
+      assim não passar, vai para AWAIT_EVIDENCE em vez de ocupar um revisor humano."""
+    sistemico = significance == "SYSTEMIC"
     baixa = significance == "LOW"
     limiar = policy.threshold
     origem_limiar = policy.provenance.get("threshold", "")
@@ -163,6 +167,29 @@ def route(
             "detail": f"confidence {score:.2%} vs threshold {limiar:.2%} ({origem_limiar})",
         },
     )
+    if sistemico:
+        bloqueio = next(
+            (c for c in checks if not c["passed"]
+             and c["check"] in ("no_conflict", "semantic_validation", "no_critical_risk")),
+            None,
+        )
+        checks = checks + (
+            {
+                "check": "systemic_objective",
+                "passed": bloqueio is None,
+                "detail": "critério sistêmico: comportamento objetivo verificado no código; "
+                "confiança e política de revisão não se aplicam",
+            },
+        )
+        if bloqueio is None:
+            return RouteDecision(
+                AUTO_APPROVED, checks,
+                "critério sistêmico: evidência verificada basta, sem revisão humana",
+            )
+        return RouteDecision(
+            NEEDS_HUMAN_REVIEW, checks,
+            f"sistêmico, mas reprovado em {bloqueio['check']}: {bloqueio['detail']}",
+        )
     falha = next((c for c in checks if not c["passed"]), None)
     if falha is None:
         return RouteDecision(AUTO_APPROVED, checks, "todas as condições do §86 satisfeitas")

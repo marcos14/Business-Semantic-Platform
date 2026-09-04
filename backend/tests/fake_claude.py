@@ -169,7 +169,7 @@ def main() -> int:
                     "statement": "Nos filtros de consulta a data inicial não pode ser maior "
                     "que a data final.",
                     "classification": "OBSERVED_BEHAVIOR",
-                    "significance": "TRIVIAL",
+                    "significance": "SYSTEMIC",
                     "evidence": [
                         {"file": "billing.go", "start_line": 1, "end_line": 2,
                          "summary": "validação genérica de formulário"}

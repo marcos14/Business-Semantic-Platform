@@ -64,7 +64,26 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--actor", default="cli:campaign")
     pe = sub.add_parser("embed", help="gera embeddings dos atoms que ainda não têm (backfill)")
     pe.add_argument("--domain", default=None)
+
+    pt = sub.add_parser("triage", help="aplica a régua de relevância aos pendentes de revisão")
+    pt.add_argument("--domain", default=None)
+    pt.add_argument("--limit", type=int, default=200)
+    pt.add_argument("--dry-run", action="store_true", help="só classifica e conta")
     args = parser.parse_args(argv)
+
+    if args.command == "triage":
+        from app.services.triage import triage_pending
+
+        with SessionLocal() as db:
+            r = triage_pending(db, domain=args.domain, limit=args.limit, apply=not args.dry_run)
+        print(f"Considerados {r['considered']} · classificados {r['classified']} "
+              f"({', '.join(f'{k} {v}' for k, v in r['by_significance'].items() if v)})"
+              + (" · DRY-RUN" if r["dry_run"] else ""))
+        if not r["dry_run"]:
+            print(f"  re-roteados {r['rerouted']}: {r['auto_approved']} aprovados, "
+                  f"{r['awaiting_evidence']} aguardando evidência · "
+                  f"{r['still_human']} seguem para humanos · {r['unclassified']} sem resposta")
+        return 0
 
     if args.command == "embed":
         from app.services.embeddings import ensure_atom_embeddings

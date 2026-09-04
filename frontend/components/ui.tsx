@@ -70,13 +70,15 @@ const SIGNIFICANCE_LABEL: Record<string, string> = {
   HIGH: "relevância alta",
   MEDIUM: "relevância média",
   LOW: "relevância baixa",
-  TRIVIAL: "trivial",
+  SYSTEMIC: "sistêmico",
+  TRIVIAL: "sistêmico",
 };
 const SIGNIFICANCE_COLOR: Record<string, string> = {
   HIGH: "#2b6cb0",
   MEDIUM: "#4a5568",
   LOW: "#a0aec0",
-  TRIVIAL: "#a0aec0",
+  SYSTEMIC: "#0987a0",
+  TRIVIAL: "#0987a0",
 };
 
 export const SignificanceBadge = ({ significance }: { significance?: string | null }) =>

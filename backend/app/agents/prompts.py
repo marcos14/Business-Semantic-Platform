@@ -26,22 +26,23 @@ range de linhas inválido invalida a evidence. Nunca cite de memória.
 6. Nunca esconda incerteza; nunca atribua confiança — o cálculo de confidence é do sistema.
 7. Escreva title/statement/summary em LINGUAGEM DE NEGÓCIO, em português, para leigos \
 (o summary de cada evidence é a tradução amigável que um revisor de negócio lerá).
-8. RÉGUA DE RELEVÂNCIA. Conhecimento de negócio é o que um gestor da área reconheceria como \
-regra, política, cálculo, condição, limite com significado de negócio, transição de estado \
-ou exceção. NÃO é conhecimento de negócio, e NÃO deve virar candidate:
-   - validação genérica de entrada: campo obrigatório, formato/máscara, data inicial maior \
-que a final, número positivo, tamanho máximo de texto, CPF/CNPJ com dígito inválido;
-   - comportamento de interface: habilitar/desabilitar botão, foco, paginação, ordenação, \
-mensagem de confirmação, atalho de teclado;
-   - infraestrutura: log, conexão, transação, cache, retry, permissão genérica de tela, \
-tratamento técnico de erro, mapeamento de campos.
-   Classifique cada candidate em `significance`:
+8. RÉGUA DE RELEVÂNCIA — classifique cada candidate em `significance`:
    - HIGH: muda dinheiro, imposto, estoque, comissão, status de documento ou uma decisão \
 do negócio; políticas, exceções e regras legais/fiscais.
    - MEDIUM: regra operacional de processo, cálculo auxiliar, condição que altera o fluxo.
    - LOW: detalhe operacional com algum significado de negócio (ex.: valor padrão de um \
 parâmetro comercial, arredondamento de exibição).
-   - TRIVIAL: caiu numa das exclusões acima. Prefira não emitir; se emitir, será descartado.
+   - SYSTEMIC: comportamento OBJETIVO, verificável só pelo código, sem decisão de negócio \
+embutida — validação genérica de entrada (campo obrigatório, formato/máscara, data inicial \
+maior que a final, número positivo, tamanho de texto, dígito verificador), comportamento de \
+interface (habilitar/desabilitar, foco, paginação, ordenação, confirmação), infraestrutura \
+(log, conexão, transação, cache, retry, permissão genérica de tela, tratamento técnico de \
+erro). É conhecimento útil para quem for reescrever ou testar o sistema e SERÁ gravado, mas \
+a evidência verificada basta: não passa por revisão humana. Para não inflar a base, AGRUPE \
+o sistêmico repetitivo do mesmo formulário/módulo em um único candidate (ex.: "o cadastro X \
+exige os campos A, B e C e valida as datas do período").
+   Um gestor da área reconheceria HIGH/MEDIUM/LOW como regra do negócio; SYSTEMIC ele \
+delegaria ao time técnico sem discutir.
 """
 
 # ---------- linguagem ----------
@@ -185,8 +186,8 @@ _CANDIDATE_ITEM = {
         "risk": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
         "significance": {
             "type": "string",
-            "enum": ["TRIVIAL", "LOW", "MEDIUM", "HIGH"],
-            "description": "relevância de negócio (regra 8): TRIVIAL será descartado",
+            "enum": ["SYSTEMIC", "LOW", "MEDIUM", "HIGH"],
+            "description": "relevância (regra 8): SYSTEMIC = objetivo, aprovado sem humano",
         },
         "decision_inputs": {"type": "array", "items": {"type": "string"}},
         "decision_output": {"type": "string"},

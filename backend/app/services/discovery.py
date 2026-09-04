@@ -273,14 +273,14 @@ def _ingest(
             run.candidates_rejected += 1
             continue
 
-        # Régua de relevância (regra 8 do prompt): validação genérica/técnica não é
-        # conhecimento de negócio — descartada antes de existir. Sem marcação = MEDIUM.
+        # Régua de relevância (regra 8 do prompt). Sem marcação = MEDIUM (fluxo normal).
+        # "TRIVIAL" (nome antigo) é lido como SYSTEMIC: comportamento objetivo, gravado e
+        # aprovado sem humano — o roteamento decide, não a ingestão.
         significance = str(c.get("significance") or Significance.MEDIUM).upper()
+        if significance == "TRIVIAL":
+            significance = str(Significance.SYSTEMIC)
         if significance not in Significance.__members__:
             significance = str(Significance.MEDIUM)
-        if significance == Significance.TRIVIAL:
-            run.trivial_skipped += 1
-            continue
 
         # Verificação mecânica de evidence contra o commit (anti-alucinação)
         evidencias = []
@@ -358,6 +358,8 @@ def _ingest(
             continue
         db.flush()
         run.candidates_created += 1
+        if significance == Significance.SYSTEMIC:
+            run.systemic_created += 1
         existentes.append((atom.id, norm))
         hashes.add(_statement_hash(statement))
         if vetores is not None:

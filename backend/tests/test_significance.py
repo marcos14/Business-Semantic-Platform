@@ -39,6 +39,27 @@ def test_low_com_conflito_ou_risco_critico_ainda_vai_a_humano():
     assert d.outcome == NEEDS_HUMAN_REVIEW
 
 
+def test_sistemico_aprova_sem_confianca_nem_politica():
+    d = route(score=0.15, policy=_policy(), has_conflict=False, risk=None, lint_errors=0,
+              significance="SYSTEMIC", low_significance_threshold=0.60)
+    assert d.outcome == AUTO_APPROVED and "sistêmico" in d.reason
+    assert any(c["check"] == "systemic_objective" and c["passed"] for c in d.checks)
+    # política de revisão obrigatória também não se aplica ao sistêmico
+    p = _policy()
+    p.human_review_required = True
+    d = route(score=0.15, policy=p, has_conflict=False, risk="LOW", lint_errors=0,
+              significance="SYSTEMIC")
+    assert d.outcome == AUTO_APPROVED
+
+
+def test_sistemico_com_conflito_lint_ou_risco_critico_vai_a_humano():
+    for kw in ({"has_conflict": True}, {"lint_errors": 1}, {"risk": "CRITICAL"}):
+        base = dict(score=0.95, policy=_policy(), has_conflict=False, risk="LOW", lint_errors=0)
+        d = route(**{**base, **kw}, significance="SYSTEMIC")
+        assert d.outcome == NEEDS_HUMAN_REVIEW, kw
+        assert "sistêmico, mas" in d.reason
+
+
 def test_medium_e_high_seguem_fluxo_normal():
     for sig in ("MEDIUM", "HIGH", None):
         d = route(score=0.65, policy=_policy(), has_conflict=False, risk="LOW", lint_errors=0,
