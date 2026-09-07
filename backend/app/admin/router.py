@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 from app.auth.deps import get_current_user
 from app.auth.passwords import hash_password
 from app.db import get_db
-from app.kernel.ir.envelope import RiskLevel
+from app.kernel.confidence import PROFILES
+from app.kernel.ir.envelope import RiskLevel, Significance
 from app.kernel.ir.registry import known_kinds
 from app.kernel.policy import SCOPE_TYPES
 from app.models.auth import Capability, Domain, Role, RoleBinding, User
 from app.models.confidence import Policy
 from app.rbac.deps import require
+from app.services.profiles import profile_as_dict, profile_names
 
 router = APIRouter(
     prefix="/admin",
@@ -62,23 +64,58 @@ def list_users(db: Session = Depends(get_db)) -> list[User]:
 class DomainIn(BaseModel):
     slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$", max_length=100)
     name: str = Field(min_length=1, max_length=200)
+    evidence_profile: str | None = None
+
+
+class DomainPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    evidence_profile: str | None = None
+
+
+def _validate_profile(name: str | None) -> None:
+    if name is not None and name not in PROFILES:
+        raise HTTPException(422, f"evidence_profile inválido (use {profile_names()})")
+
+
+def _domain_out(d: Domain) -> dict:
+    return {"slug": d.slug, "name": d.name, "evidence_profile": d.evidence_profile}
 
 
 @router.post("/domains", status_code=status.HTTP_201_CREATED)
 def create_domain(body: DomainIn, db: Session = Depends(get_db)) -> dict:
     if db.get(Domain, body.slug):
         raise HTTPException(status.HTTP_409_CONFLICT, "Domain já existe")
-    db.add(Domain(slug=body.slug, name=body.name))
+    _validate_profile(body.evidence_profile)
+    d = Domain(slug=body.slug, name=body.name, evidence_profile=body.evidence_profile)
+    db.add(d)
     db.commit()
-    return {"slug": body.slug, "name": body.name}
+    return _domain_out(d)
 
 
 @router.get("/domains")
 def list_domains(db: Session = Depends(get_db)) -> list[dict]:
-    return [
-        {"slug": d.slug, "name": d.name}
-        for d in db.scalars(select(Domain).order_by(Domain.slug))
-    ]
+    return [_domain_out(d) for d in db.scalars(select(Domain).order_by(Domain.slug))]
+
+
+@router.patch("/domains/{slug}")
+def update_domain(slug: str, body: DomainPatch, db: Session = Depends(get_db)) -> dict:
+    """Nome e perfil de evidência (pesos do Confidence Engine para este domain)."""
+    d = db.get(Domain, slug)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain inexistente")
+    if body.name is not None:
+        d.name = body.name
+    if "evidence_profile" in body.model_fields_set:
+        _validate_profile(body.evidence_profile)
+        d.evidence_profile = body.evidence_profile or None
+    db.commit()
+    return _domain_out(d)
+
+
+@router.get("/evidence-profiles")
+def list_evidence_profiles() -> list[dict]:
+    """Perfis de evidência disponíveis, com os pesos (para a tela de admin explicar)."""
+    return [profile_as_dict(p) for p in PROFILES.values()]
 
 
 class CapabilityIn(BaseModel):
@@ -202,6 +239,7 @@ class PolicyIn(BaseModel):
     human_review_required: bool | None = None
     min_reviewers: int | None = Field(default=None, ge=1)
     require_owner_approval: bool | None = None
+    provisional_floor: float | None = Field(default=None, ge=0, le=1)
     active: bool = True
 
 
@@ -222,6 +260,8 @@ def _validate_policy_scope(db: Session, body: PolicyIn) -> None:
         raise HTTPException(422, f"Kind desconhecido: {body.selector}")
     if body.scope_type == "risk" and body.selector not in list(RiskLevel):
         raise HTTPException(422, f"Risk inválido: {body.selector}")
+    if body.scope_type == "significance" and body.selector not in list(Significance):
+        raise HTTPException(422, f"Significance inválida: {body.selector}")
 
 
 def _policy_out(p: Policy) -> dict:
@@ -234,6 +274,7 @@ def _policy_out(p: Policy) -> dict:
         "human_review_required": p.human_review_required,
         "min_reviewers": p.min_reviewers,
         "require_owner_approval": p.require_owner_approval,
+        "provisional_floor": p.provisional_floor,
         "active": p.active,
     }
 

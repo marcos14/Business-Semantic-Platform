@@ -51,6 +51,19 @@ class Settings(BaseSettings):
     # confiança passar deste limiar (menor que o da política) ou fica aguardando evidência.
     low_significance_threshold: float = 0.60
 
+    # --- Confiança e faixas ---
+    # Perfil de evidência padrão (pesos do engine) quando o domain não escolhe um:
+    # default | legacy-hostile (ERP antigo: código pesa muito, docs são pista).
+    evidence_profile: str = "default"
+    # Corroboração é busca dirigida, não descoberta aberta: modelo mais barato basta.
+    harness_corroboration_model: str = "sonnet"
+    # Busca de evidência (cascata, estágio 1) disparada automaticamente ao fim de campanha.
+    evidence_search_auto: bool = True
+    evidence_search_delay_min: int = 5  # espera a campanha assentar antes de corroborar
+    evidence_search_max_batches: int = 3  # lotes de 30 atoms por disparo (teto de custo)
+    # Exportar também os PROVISIONAL para o canonical-repo (pasta `provisional/`).
+    export_provisional: bool = False
+
     # --- Embeddings (pgvector) ---
     # openrouter | fake (testes, determinístico) | off (sem recuperação vetorial)
     embedding_provider: str = "openrouter"

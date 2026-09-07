@@ -249,6 +249,15 @@ def add_evidence(
     if not contradiz:
         return ev
 
+    # Perfil "legado-hostil": documento velho contradizendo código não é conflito de
+    # negócio — vira uma question (divergência documental), sem inundar a fila humana.
+    if str(evidence_fields.get("type")) == str(EvidenceType.DOCUMENT):
+        from app.services.profiles import profile_for_domain
+
+        if profile_for_domain(db, atom.domain).treats_document_as_divergence():
+            _document_divergence_question(db, atom, actor=actor, evidence=ev)
+            return ev
+
     canonical = atom.status == LifecycleStatus.CANONICAL
     if canonical:
         # §74: evidência contraditória sobre canonical não altera a regra — desafia.
@@ -276,6 +285,29 @@ def add_evidence(
             db, atom, actor=actor, evidence_id=str(ev.id), reevaluation=canonical
         )
     return ev
+
+
+def _document_divergence_question(
+    db: Session, atom: KnowledgeAtom, *, actor: str, evidence: Evidence
+) -> None:
+    if atom.kind in (str(AtomKind.CONFLICT), str(AtomKind.QUESTION)):
+        return
+    loc = evidence.location or {}
+    onde = loc.get("file") or "documento"
+    pergunta = (
+        f"A documentação ({onde}) diverge do código em \"{atom.title}\". "
+        "O documento está desatualizado ou o código está errado?"
+    )
+    create_candidate(
+        db, actor=actor, origin=Origin.AGENT if evidence.origin == "agent" else Origin.HUMAN,
+        kind=AtomKind.QUESTION, title=pergunta[:300], domain=atom.domain,
+        capability=atom.capability, description=evidence.summary,
+        body={"question": pergunta},
+    )
+    events.record_event(
+        db, events.DOCUMENT_DIVERGENCE, actor, atom.id,
+        {"evidence_id": str(evidence.id), "file": loc.get("file")},
+    )
 
 
 def update_atom(

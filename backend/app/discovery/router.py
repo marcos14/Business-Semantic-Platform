@@ -143,6 +143,54 @@ def triage_pending_endpoint(
         raise KernelError(f"Triagem indisponível: {e}") from None
 
 
+class RerouteIn(BaseModel):
+    domain: str | None = None
+    limit: int = Field(default=500, ge=1, le=5000)
+
+
+@router.post("/reroute")
+def reroute_pending_endpoint(
+    body: RerouteIn | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require(Role.ADMINISTRATOR)),
+) -> dict:
+    """Re-roteia os pendentes de revisão humana SEM voto sob as regras atuais (faixas,
+    políticas por relevância, perfil de evidência). Não usa LLM; não mexe em quem já tem voto."""
+    from app.services.triage import reevaluate_pending
+
+    body = body or RerouteIn()
+    return reevaluate_pending(db, domain=body.domain, limit=body.limit)
+
+
+class EvidenceSearchIn(BaseModel):
+    source_id: uuid.UUID
+    domain: str
+    capability: str | None = None
+    max_batches: int = Field(default=3, ge=1, le=20)
+    budget_usd: float = Field(default=5.0, gt=0, le=50, description="por lote de 30 atoms")
+
+
+@router.post("/evidence-search", status_code=status.HTTP_202_ACCEPTED)
+def start_evidence_search(
+    body: EvidenceSearchIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require(Role.ADMINISTRATOR)),
+) -> dict:
+    """Cascata de evidência, estágio 1 (mesma fonte): corrobora em lotes, por prioridade, os
+    atoms que ainda não chegaram à faixa alvo. Enfileira na fila `discovery` (worker no host)."""
+    from app.jobs import defer_evidence_search
+
+    _source_ou_404(db, body.source_id)
+    ok = defer_evidence_search(
+        source_id=str(body.source_id), domain=body.domain, capability=body.capability,
+        actor=admin.email, max_batches=body.max_batches, budget_usd=body.budget_usd,
+        delay_min=0,
+    )
+    if not ok:
+        raise KernelError("Falha ao enfileirar a busca de evidência")
+    return {"queued": True, "queue": "discovery"}
+
+
 # ---------- Inventário e campanhas (muitos runs pequenos) ----------
 
 

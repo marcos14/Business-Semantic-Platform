@@ -40,6 +40,9 @@ class Domain(Base):
 
     slug: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
+    # Perfil de evidência (pesos do Confidence Engine) deste domain: "default" ou
+    # "legacy-hostile" (ERP antigo sem docs/testes confiáveis). Null = EVIDENCE_PROFILE.
+    evidence_profile: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class Capability(Base):

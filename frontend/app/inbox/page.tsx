@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { get, post } from "@/lib/api";
 import { Badge, ConfidenceBar, RiskBadge, Shell, StatusBadge, btnPrimary, card } from "@/components/ui";
 
@@ -26,6 +26,7 @@ export default function InboxPage() {
   const [error, setError] = useState<string | null>(null);
   const [admin, setAdmin] = useState(false);
   const [triagem, setTriagem] = useState<{ rodando: boolean; msg: string | null }>({ rodando: false, msg: null });
+  const [reroute, setReroute] = useState<{ rodando: boolean; msg: string | null }>({ rodando: false, msg: null });
 
   const load = () => get("/reviews/inbox").then(setData).catch((e) => setError(e.message));
   useEffect(() => {
@@ -51,40 +52,80 @@ export default function InboxPage() {
     }
   };
 
+  const rerotear = async () => {
+    setReroute({ rodando: true, msg: null });
+    try {
+      const r = await post("/discovery/reroute", {});
+      setReroute({
+        rodando: false,
+        msg: `${r.considered} pendente(s) analisados · ${r.rerouted} re-roteados: ${r.canonical} canônicos, ${r.provisional} provisórios, ${r.awaiting_evidence} aguardando evidência · ${r.still_human} seguem para revisão humana.`,
+      });
+      load();
+    } catch (e: any) {
+      setReroute({ rodando: false, msg: `Erro: ${e.message}` });
+    }
+  };
+
   if (error) return <Shell title="Inbox">Erro: {error}</Shell>;
   if (!data) return <Shell title="Inbox">Carregando…</Shell>;
 
   const s = data.summary;
-  const resumo = [
-    [s.awaiting_review, "aguardando sua revisão"],
-    [s.needs_decision, "decisões aguardando você"],
-    [s.with_conflicts, "itens com evidência contraditória"],
-    [s.canonical_challenged, "regras canônicas desafiadas"],
-  ] as const;
+  const resumo: { n: number; label: string; href?: string }[] = [
+    { n: s.awaiting_review, label: "aguardando sua revisão" },
+    { n: s.needs_decision, label: "decisões aguardando você" },
+    { n: s.with_conflicts, label: "itens com evidência contraditória" },
+    { n: s.canonical_challenged, label: "regras canônicas desafiadas" },
+    { n: s.provisional ?? 0, label: "provisórios publicados (revisar por filtro)", href: "/provisional" },
+    { n: s.awaiting_evidence ?? 0, label: "aguardando evidência (sem ação humana)" },
+  ];
+  const resumoBox: CSSProperties = { flex: 1, minWidth: 180, textDecoration: "none", color: "inherit" };
 
   return (
     <Shell title="Sua Inbox de Revisão">
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-        {resumo.map(([n, label]) => (
-          <div key={label} style={{ ...card, flex: 1, minWidth: 180, marginBottom: 0 }}>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{n}</div>
-            <div style={{ color: "#718096", fontSize: 13 }}>{label}</div>
-          </div>
-        ))}
+        {resumo.map(({ n, label, href }) => {
+          const box = (
+            <div style={{ ...card, marginBottom: 0, height: "100%", boxSizing: "border-box" }}>
+              <div style={{ fontSize: 28, fontWeight: 700 }}>{n}</div>
+              <div style={{ color: href ? "#2b6cb0" : "#718096", fontSize: 13 }}>{label}</div>
+            </div>
+          );
+          return href ? (
+            <Link key={label} href={href} style={resumoBox} title="Abrir revisão por filtro">
+              {box}
+            </Link>
+          ) : (
+            <div key={label} style={resumoBox}>
+              {box}
+            </div>
+          );
+        })}
       </div>
 
       {admin && (
         <div style={{ ...card, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", background: "#f7fafc" }}>
-          <div style={{ flex: 1, fontSize: 13, color: "#4a5568" }}>
+          <div style={{ flex: 1, minWidth: 260, fontSize: 13, color: "#4a5568" }}>
             <strong>Régua de relevância.</strong> Itens criados antes da régua chegaram aqui sem
             classificação. A triagem usa o modelo de análise para marcar cada pendente sem voto como
             sistêmico, baixo, médio ou alto: sistêmico é aprovado direto, baixo aprova com régua
             reduzida ou aguarda evidência, médio e alto continuam na Inbox.
             {triagem.msg && <div style={{ marginTop: 6, color: triagem.msg.startsWith("Erro") ? "#c53030" : "#276749" }}>{triagem.msg}</div>}
+            <div style={{ marginTop: 8 }}>
+              <strong>Re-roteamento.</strong> Aplica os níveis de confiança atuais (piso provisório,
+              políticas por relevância) aos pendentes sem voto, sem usar o modelo: quem atinge o piso é
+              publicado como provisório ou canônico, quem não atinge volta a aguardar evidência, e o
+              restante segue para revisão humana.
+            </div>
+            {reroute.msg && <div style={{ marginTop: 6, color: reroute.msg.startsWith("Erro") ? "#c53030" : "#276749" }}>{reroute.msg}</div>}
           </div>
-          <button style={btnPrimary} disabled={triagem.rodando} onClick={aplicarRegua}>
-            {triagem.rodando ? "Classificando…" : "Aplicar régua aos pendentes"}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button style={btnPrimary} disabled={triagem.rodando} onClick={aplicarRegua}>
+              {triagem.rodando ? "Classificando…" : "Aplicar régua aos pendentes"}
+            </button>
+            <button style={btnPrimary} disabled={reroute.rodando} onClick={rerotear}>
+              {reroute.rodando ? "Re-roteando…" : "Re-rotear pendentes"}
+            </button>
+          </div>
         </div>
       )}
       {data.items.length === 0 && (

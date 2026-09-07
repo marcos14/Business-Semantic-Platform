@@ -35,9 +35,25 @@ ASSERTIVE_ACTIONS = frozenset(
     {ReviewAction.CONFIRM, ReviewAction.CONFIRM_WITH_EXCEPTION, ReviewAction.REJECT}
 )
 
+# Votos que contam como confirmação para a canonicalização por política (owner dispensado)
+CONFIRMING_ACTIONS = frozenset({ReviewAction.CONFIRM, ReviewAction.CONFIRM_WITH_EXCEPTION})
+
 # Status em que votar/comentar faz sentido
 REVIEWABLE_STATUSES = frozenset(
-    {S.NEEDS_HUMAN_REVIEW, S.IN_REVIEW, S.CORROBORATING, S.DECISION_PENDING, S.CONFLICTED}
+    {
+        S.NEEDS_HUMAN_REVIEW,
+        S.IN_REVIEW,
+        S.CORROBORATING,
+        S.DECISION_PENDING,
+        S.CONFLICTED,
+        S.PROVISIONAL,
+    }
+)
+
+# O que entra na Inbox por padrão: só o que EXIGE ação humana. Aguardar evidência e
+# provisório não são pendências de gente — ficam no Kanban e na revisão por filtro.
+INBOX_STATUSES = frozenset(
+    {S.NEEDS_HUMAN_REVIEW, S.IN_REVIEW, S.DECISION_PENDING, S.CONFLICTED}
 )
 
 # Kanban (§38): coluna -> statuses do lifecycle
@@ -46,6 +62,7 @@ KANBAN_COLUMNS: dict[str, tuple[S, ...]] = {
     "in_discussion": (S.IN_REVIEW,),
     "needs_evidence": (S.CORROBORATING,),
     "needs_decision": (S.DECISION_PENDING,),
+    "provisional": (S.PROVISIONAL,),
     "approved": (S.AUTO_APPROVED, S.CANONICAL),
     "rejected": (S.REJECTED, S.LEGACY_BUG),
 }

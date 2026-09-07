@@ -174,4 +174,5 @@ def test_recalcular_nao_reescreve_historico(client, ctx):
 
     conf = client.get(f"/knowledge/{atom_id}/confidence", headers=ctx["rev"]).json()
     assert conf["score"] == s2["score"]
-    assert len(conf["signals"]) == 12
+    assert len(conf["signals"]) == 16  # v2: sítios, mecanismo, banco, alcançabilidade...
+    assert conf["profile"] == "default"

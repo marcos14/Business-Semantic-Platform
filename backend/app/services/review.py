@@ -30,6 +30,7 @@ from app.services import evaluation, notify
 from app.services import knowledge as ksvc
 
 REVIEWABLE = {str(s) for s in governance.REVIEWABLE_STATUSES}
+INBOX = {str(s) for s in governance.INBOX_STATUSES}
 
 
 def _role_at_vote(user: User, atom: KnowledgeAtom) -> tuple[str, bool]:
@@ -85,11 +86,20 @@ def submit_vote(
     atom = ksvc.get_atom(db, atom_id)
     if atom.status not in REVIEWABLE:
         raise KernelError(f"Atom em {atom.status} não está em revisão")
+    era_provisorio = atom.status == str(LifecycleStatus.PROVISIONAL)
     # Primeiro voto abre a discussão (§38: Needs Review → In Discussion)
     if atom.status == str(LifecycleStatus.NEEDS_HUMAN_REVIEW):
         atom = ksvc.change_status(
             db, atom_id, actor=user.email, new_status=LifecycleStatus.IN_REVIEW,
             reason="primeiro voto abriu a discussão", expected_lock_version=atom.lock_version,
+        )
+    # Provisório: quem não confirma abre a discussão humana (sai da faixa publicada);
+    # quem confirma fica provisório até a política decidir se basta (abaixo).
+    if era_provisorio and action not in governance.CONFIRMING_ACTIONS:
+        atom = ksvc.change_status(
+            db, atom_id, actor=user.email, new_status=LifecycleStatus.IN_REVIEW,
+            reason=f"voto {action} em provisório abriu a discussão",
+            expected_lock_version=atom.lock_version,
         )
 
     role, is_expert = _role_at_vote(user, atom)
@@ -130,7 +140,109 @@ def submit_vote(
                 summary=f"Revisão humana: {action} por {role}",
                 metadata={"reviewer": user.email, "role": role, "decision": str(action)},
             )
+
+    # Política que dispensa o owner: confirmações suficientes canonicalizam direto.
+    if action in governance.CONFIRMING_ACTIONS:
+        _canonicalize_if_policy_allows(db, atom_id, actor=user.email)
     return vote
+
+
+def _canonicalize_if_policy_allows(db: Session, atom_id: str, *, actor: str) -> bool:
+    """Um humano basta quando a política diz `require_owner_approval=false`: com
+    `min_reviewers` confirmações, nenhum REJECT e nenhuma contradição, o atom vai a
+    CANONICAL (a política É a autoridade, como no caminho automático §99)."""
+    atom = ksvc.get_atom(db, atom_id)
+    if atom.status not in (str(LifecycleStatus.PROVISIONAL), str(LifecycleStatus.IN_REVIEW)):
+        return False
+    eff = evaluation.effective_policy(db, atom)
+    if eff.owner_required() or atom.risk == "CRITICAL":
+        return False
+    votos = list(db.scalars(select(Vote).where(Vote.atom_id == atom_id)))
+    confirmando = {str(a) for a in governance.CONFIRMING_ACTIONS}
+    confirmacoes = sum(1 for v in votos if v.action in confirmando)
+    rejeicoes = sum(1 for v in votos if v.action == str(ReviewAction.REJECT))
+    if rejeicoes or confirmacoes < eff.reviewers_required():
+        return False
+    if _conflict_counts(db, [atom_id]).get(atom_id, 0):
+        return False
+    motivo = (
+        f"aprovação por política ({eff.provenance.get('require_owner_approval', 'política')}): "
+        f"{confirmacoes} confirmação(ões), owner dispensado"
+    )
+    events.record_event(
+        db, events.DECISION_MADE, actor, atom_id,
+        {"decision_action": str(DecisionAction.APPROVE), "reason": motivo,
+         "by_role": "policy", "policy": eff.as_dict()},
+    )
+    ksvc.change_status(
+        db, atom_id, actor=actor, new_status=LifecycleStatus.CANONICAL, reason=motivo,
+        expected_lock_version=atom.lock_version, authority_granted=True,
+    )
+    return True
+
+
+def bulk_vote(
+    db: Session, user: User, atom_ids: list[str], action: ReviewAction, comment: str | None
+) -> dict:
+    """O mesmo voto em vários atoms (revisão por filtro). Cada atom passa pelos gates do
+    voto individual; erro em um não derruba os outros."""
+    from fastapi import HTTPException
+
+    from app.rbac.deps import ensure_scope_role
+
+    resultados = []
+    for atom_id in dict.fromkeys(atom_ids):
+        try:
+            atom = ksvc.get_atom(db, atom_id)
+            ensure_scope_role(user, Role.REVIEWER, atom.domain, atom.capability)
+            with db.begin_nested():  # savepoint: erro em um atom não desfaz os outros
+                submit_vote(db, atom_id, user, action, comment)
+            atom = ksvc.get_atom(db, atom_id)
+            resultados.append({"id": atom_id, "ok": True, "status": atom.status})
+        except (KernelError, HTTPException) as e:
+            msg = str(getattr(e, "detail", None) or e)
+            resultados.append({"id": atom_id, "ok": False, "error": msg[:300]})
+    db.commit()
+    return {
+        "action": str(action),
+        "ok": sum(1 for r in resultados if r["ok"]),
+        "failed": sum(1 for r in resultados if not r["ok"]),
+        "results": resultados,
+    }
+
+
+def audit_sample(
+    db: Session, user: User, *, domain: str | None, capability: str | None, n: int
+) -> dict:
+    """Amostra aleatória de provisórios sem voto (escopo do revisor)."""
+    domains = _reviewer_domains(user)
+    if domains == []:
+        return {"items": [], "sampled_from": 0}
+    votados = select(Vote.atom_id)
+    stmt = select(KnowledgeAtom).where(
+        KnowledgeAtom.status == str(LifecycleStatus.PROVISIONAL),
+        KnowledgeAtom.id.not_in(votados),
+    )
+    if domains is not None:
+        stmt = stmt.where(KnowledgeAtom.domain.in_(domains))
+    if domain:
+        stmt = stmt.where(KnowledgeAtom.domain == domain)
+    if capability:
+        stmt = stmt.where(KnowledgeAtom.capability == capability)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    atoms = list(db.scalars(stmt.order_by(func.random()).limit(n)))
+    ids = [a.id for a in atoms]
+    conflicts = _conflict_counts(db, ids)
+    votes = _vote_counts(db, ids)
+    supports = _support_counts(db, ids)
+    itens = []
+    for a in atoms:
+        item = _card(a, conflicts.get(a.id, 0), votes.get(a.id, 0), supports.get(a.id, 0))
+        item["significance"] = a.significance
+        item["classification"] = a.classification
+        item["statement"] = (a.body or {}).get("statement")
+        itens.append(item)
+    return {"items": itens, "sampled_from": total}
 
 
 def add_comment(db: Session, atom_id: str, user: User, text: str) -> Comment:
@@ -331,8 +443,11 @@ def _scoped_atoms(db: Session, user: User, statuses: set[str]) -> list[Knowledge
 
 
 def inbox(db: Session, user: User) -> dict:
-    """Inbox personalizada (§37) ordenada pela prioridade composta (§84)."""
-    atoms = _scoped_atoms(db, user, REVIEWABLE)
+    """Inbox personalizada (§37) ordenada pela prioridade composta (§84).
+
+    Só entra o que EXIGE ação humana. Aguardando evidência e provisório ficam fora da lista
+    (contados no resumo): não são pendências de gente."""
+    atoms = _scoped_atoms(db, user, INBOX)
     ids = [a.id for a in atoms]
     conflicts = _conflict_counts(db, ids)
     centrality = _centralities(db, ids)
@@ -366,6 +481,8 @@ def inbox(db: Session, user: User) -> dict:
     challenged = sum(
         1 for cid, n in _conflict_counts(db, [c.id for c in canonicos]).items() if n > 0
     )
+    provisorios = _scoped_atoms(db, user, {str(LifecycleStatus.PROVISIONAL)})
+    aguardando = _scoped_atoms(db, user, {str(LifecycleStatus.CORROBORATING)})
     return {
         "summary": {
             "awaiting_review": sum(
@@ -377,6 +494,8 @@ def inbox(db: Session, user: User) -> dict:
             "needs_decision": sum(1 for i in itens if i["needs_your_decision"]),
             "with_conflicts": sum(1 for i in itens if i["conflicting_evidence"] > 0),
             "canonical_challenged": challenged,
+            "provisional": len(provisorios),
+            "awaiting_evidence": len(aguardando),
         },
         "items": itens,
     }

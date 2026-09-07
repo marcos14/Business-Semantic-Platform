@@ -14,6 +14,7 @@ export const STATUS_LABEL: Record<string, string> = {
   IN_REVIEW: "Em discussão",
   DECISION_PENDING: "Aguardando decisão",
   CANONICAL: "Canônico",
+  PROVISIONAL: "Provisório",
   REJECTED: "Rejeitado",
   SUPERSEDED: "Substituído",
   CONFLICTED: "Em conflito",
@@ -23,6 +24,7 @@ export const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_COLOR: Record<string, string> = {
   CANONICAL: "#276749",
+  PROVISIONAL: "#b7791f",
   AUTO_APPROVED: "#276749",
   REJECTED: "#9b2c2c",
   LEGACY_BUG: "#9b2c2c",
@@ -177,6 +179,9 @@ function Nav() {
       </Link>
       <Link href="/kanban" style={link}>
         Kanban
+      </Link>
+      <Link href="/provisional" style={link}>
+        Provisórios
       </Link>
       <Link href="/explorer" style={link}>
         Explorer

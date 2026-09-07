@@ -25,6 +25,12 @@ CONFIDENCE_CHANGED = "ConfidenceChanged"
 CONFLICT_DETECTED = "ConflictDetected"
 CANONICAL_KNOWLEDGE_CHALLENGED = "CanonicalKnowledgeChallenged"
 SIGNIFICANCE_ASSIGNED = "SignificanceAssigned"  # régua de relevância (triagem/agente)
+# Cascata de evidência: o atom foi buscado nesta source/commit (mesmo sem achar nada)
+EVIDENCE_SEARCHED = "EvidenceSearched"
+# Regra parecida em outro escopo (nunca suporte nem conflito)
+VARIANT_DETECTED = "VariantDetected"
+# Documento contradiz o código num perfil que trata docs como pista (vira question)
+DOCUMENT_DIVERGENCE = "DocumentDivergence"
 
 
 def record_event(

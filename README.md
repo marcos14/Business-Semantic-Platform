@@ -117,6 +117,52 @@ política. Pendentes criados antes da régua: botão "Aplicar régua aos pendent
 (`POST /discovery/triage`, ou `discovery_cli triage [--dry-run]`) classifica-os com o modelo de
 análise (`OPENROUTER_MODEL`) e re-roteia SYSTEMIC/LOW sem voto humano.
 
+### Faixas de confiança, perfil de evidência e cascata
+
+Três faixas de saída do roteamento (§86 estendido): **CANONICAL** (confiança ≥ limiar da
+política e todas as condições), **PROVISIONAL** (relevância MEDIUM/HIGH, confiança ≥ piso da
+política, sem conflito, sem risco CRITICAL, linter limpo — publicado com rótulo no context
+package, no Explorer e na página **Provisórios**; corrigível por um único humano) e
+**NEEDS_HUMAN_REVIEW** (o resto). Um provisório sobe a canônico sozinho quando nova evidência
+atinge o limiar, ou com um CONFIRM quando a política dispensa o owner (`require_owner_approval`
+e `min_reviewers` agora são aplicados no voto); um voto que não confirma abre a discussão
+humana. A migração cadastra três políticas iniciais (`scope_type=significance`): MEDIUM canônico
+70% / provisório 40% / um revisor basta; HIGH 85% / 55% / owner aprova; risco CRITICAL sempre
+humano. Ajuste em `/admin/policies` (campo `provisional_floor`).
+
+O Confidence Engine (v2) calcula com um **perfil de evidência** escolhido por domain (Admin) ou
+por `EVIDENCE_PROFILE`: `default` ou `legacy-hostile` (ERP antigo sem documentação nem testes
+confiáveis: 1º arquivo de código +0,45, 2º +0,25, banco +0,08 acima de docs +0,03, documento
+contradizendo código vira question em vez de conflito). A independência é por **sítio**
+(arquivo + rotina envolvente, verificada por regex contra o fonte): rotinas distintas do mesmo
+arquivo somam com desconto, arquivos distintos somam cheio, faixas sobrepostas colapsam. O
+agente informa `symbol` e `mechanism` (VALIDATION, CALCULATION, SQL, CONSTANT, MESSAGE,
+UI_STATE, TEST, REACHABILITY) em cada evidence; mecanismos distintos dizendo a mesma coisa
+somam (`mechanism_diversity`). INTENDED/MANDATED sustentado só por código/teste tem teto
+provisório: código prova o que o sistema faz, não o que o negócio quer. O perfil fica gravado
+em cada score.
+
+**Cascata de evidência, estágio 1 (mesma fonte):** ao fim de cada campanha dirigida
+(`EVIDENCE_SEARCH_AUTO`, após `EVIDENCE_SEARCH_DELAY_MIN`) o job `jobs.evidence_search`
+corrobora em lotes de 30 atoms, por prioridade (relevância, risco, menor confiança), pedindo
+evidência em **outros sítios** (os já citados vão no prompt) e no **mesmo escopo** (âncoras:
+tabelas, forms, datasets). Regra parecida em outro processo vira `SIMILAR_DIFFERENT_SCOPE` →
+candidate irmão ligado por `VARIANT_OF` + question, nunca suporte nem conflito. Cada atom
+buscado recebe um evento `EvidenceSearched` por source/commit e não é perguntado de novo.
+Corroboração usa `HARNESS_CORROBORATION_MODEL` (sonnet). Sob demanda:
+
+```sh
+cd backend
+uv run python -m app.discovery_cli evidence-search --source-name <nome> --domain <domain> [--capability <cap>] [--max-batches 3]
+uv run python -m app.discovery_cli reroute [--domain <domain>]   # pendentes sem voto sob as faixas atuais (sem LLM)
+```
+
+(ou `POST /discovery/evidence-search` e `POST /discovery/reroute`; botão "Re-rotear pendentes" na
+Inbox). Revisão por filtro: `GET /knowledge?status=PROVISIONAL&significance=...`,
+`POST /reviews/inbox/bulk` e a amostra aleatória `GET /reviews/inbox/audit-sample`, cuja taxa de
+correção (`provisional_audit.false_provisional_rate` em `/metrics/attention`) calibra o piso.
+Estágios 2 e 3 (documentação e banco como Sources próprias) ficam para o próximo ciclo.
+
 Modelos, um por finalidade, definidos no `.env` (ver `.env.example`): `OPENROUTER_MODEL`
 para análises via API (tradução de evidence, conflitos, decomposição, avaliador),
 `EMBEDDING_MODEL` para embeddings, e `HARNESS_MODEL` / `HARNESS_EFFORT` /
@@ -127,8 +173,9 @@ Recuperação semântica (pgvector): cada candidate ganha um embedding
 (`EMBEDDING_PROVIDER=openrouter`, modelo `openai/text-embedding-3-small`). Antes de cada
 turno dirigido, os `RETRIEVAL_TOP_K` candidates mais próximos do arquivo entram no prompt e o
 agente **reforça** o conhecimento existente com evidência do arquivo atual (`reinforcements`)
-em vez de duplicá-lo. Na ingestão, similaridade acima de `DEDUP_SKIP_SIMILARITY` descarta o
-candidate e acima de `DEDUP_FLAG_SIMILARITY` marca potencial duplicata. Backfill:
+em vez de duplicá-lo. Na ingestão, similaridade acima de `DEDUP_SKIP_SIMILARITY` não cria o
+candidate, mas **reforça** o atom existente com a evidência quando ela cita um sítio novo;
+acima de `DEDUP_FLAG_SIMILARITY` cria e marca potencial duplicata. Backfill:
 `uv run python -m app.discovery_cli embed --domain <domain>`. `EMBEDDING_PROVIDER=off`
 volta à deduplicação textual.
 

@@ -105,6 +105,9 @@ def coverage(db: Session, *, domain: str | None = None, capability: str | None =
         "scope": {"domain": domain, "capability": capability},
         "total_atoms": len(atoms),
         "canonical_atoms": sum(1 for a in atoms if a.status == str(LifecycleStatus.CANONICAL)),
+        "provisional_atoms": sum(
+            1 for a in atoms if a.status == str(LifecycleStatus.PROVISIONAL)
+        ),
         "candidate_atoms": sum(1 for a in atoms if a.status in _CANDIDATE_STATUSES),
         "auto_approved_atoms": len(_auto_approved_ids(db, ids)),
         "human_reviewed_atoms": len(voted),
@@ -133,11 +136,13 @@ def coverage_by_capability(db: Session, *, domain: str | None = None) -> list[di
         r = linhas.setdefault(
             (a.domain, a.capability),
             {"domain": a.domain, "capability": a.capability, "total": 0, "canonical": 0,
-             "candidates": 0, "open_conflicts": 0, "open_questions": 0},
+             "provisional": 0, "candidates": 0, "open_conflicts": 0, "open_questions": 0},
         )
         r["total"] += 1
         if a.status == str(LifecycleStatus.CANONICAL):
             r["canonical"] += 1
+        if a.status == str(LifecycleStatus.PROVISIONAL):
+            r["provisional"] += 1
         if a.status in _CANDIDATE_STATUSES and a.kind not in ("conflict", "question"):
             r["candidates"] += 1
         if a.kind == "conflict" and (a.body or {}).get("state") == "open":
@@ -172,7 +177,7 @@ def confidence_distribution(db: Session, *, domain: str | None = None) -> dict:
         select(DomainEvent.atom_id, DomainEvent.payload["decision"].astext).where(
             DomainEvent.event_type == events.DECISION_MADE,
             DomainEvent.payload["decision"].astext.in_(
-                ["AUTO_APPROVED", "NEEDS_HUMAN_REVIEW"]
+                ["AUTO_APPROVED", "PROVISIONAL", "NEEDS_HUMAN_REVIEW"]
             ),
         )
     ).all()
@@ -183,11 +188,72 @@ def confidence_distribution(db: Session, *, domain: str | None = None) -> dict:
             decisões[atom_id] = decisao  # última decisão de roteamento vence
     total_rotas = len(decisões) or 1
     autos = sum(1 for d in decisões.values() if d == "AUTO_APPROVED")
+    provisorios = sum(1 for d in decisões.values() if d == "PROVISIONAL")
     return {
         "buckets": buckets,
         "evaluated_atoms": len(decisões),
         "pct_auto_approved": round(autos / total_rotas, 4),
-        "pct_needs_human": round((len(decisões) - autos) / total_rotas, 4),
+        "pct_provisional": round(provisorios / total_rotas, 4),
+        "pct_needs_human": round((len(decisões) - autos - provisorios) / total_rotas, 4),
+    }
+
+
+def provisional_audit(db: Session, *, domain: str | None = None) -> dict:
+    """KPI da faixa provisória (irmão do §80): dos atoms que já foram PROVISIONAL, quantos
+    foram depois rejeitados, corrigidos (edição/nova versão) ou desafiados por contradição."""
+    escopo = {a.id for a in _atoms(db, domain, None)} if domain else None
+    entraram = set(
+        db.scalars(
+            select(DomainEvent.atom_id).where(
+                DomainEvent.event_type == events.STATUS_CHANGED,
+                DomainEvent.payload["to"].astext == str(LifecycleStatus.PROVISIONAL),
+            )
+        )
+    )
+    if escopo is not None:
+        entraram &= escopo
+    if not entraram:
+        return {"provisional_ever": 0, "corrected": 0, "false_provisional_rate": None,
+                "promoted_by_evidence": 0, "confirmed_by_human": 0}
+    atoms = {
+        a.id: a
+        for a in db.scalars(select(KnowledgeAtom).where(KnowledgeAtom.id.in_(entraram)))
+    }
+    editados = set(
+        db.scalars(
+            select(DomainEvent.atom_id).where(
+                DomainEvent.event_type == events.ATOM_UPDATED,
+                DomainEvent.atom_id.in_(entraram),
+            )
+        )
+    )
+    rejeitados = {aid for aid, a in atoms.items() if a.status == str(LifecycleStatus.REJECTED)}
+    contraditos = set(
+        db.scalars(
+            select(EvidenceLink.atom_id).where(
+                EvidenceLink.atom_id.in_(entraram), EvidenceLink.relation == "contradicts"
+            )
+        )
+    )
+    corrigidos = editados | rejeitados | contraditos
+    promovidos = db.execute(
+        select(DomainEvent.atom_id, DomainEvent.payload["reason"].astext).where(
+            DomainEvent.event_type == events.STATUS_CHANGED,
+            DomainEvent.payload["to"].astext == str(LifecycleStatus.CANONICAL),
+            DomainEvent.atom_id.in_(entraram),
+        )
+    ).all()
+    por_evidencia = {aid for aid, r in promovidos if r and "nova evidência" in r}
+    por_humano = {aid for aid, r in promovidos if aid not in por_evidencia}
+    return {
+        "provisional_ever": len(entraram),
+        "still_provisional": sum(
+            1 for a in atoms.values() if a.status == str(LifecycleStatus.PROVISIONAL)
+        ),
+        "corrected": len(corrigidos),
+        "false_provisional_rate": round(len(corrigidos) / len(entraram), 4),
+        "promoted_by_evidence": len(por_evidencia),
+        "confirmed_by_human": len(por_humano),
     }
 
 
@@ -237,11 +303,14 @@ def attention_kpis(db: Session, *, domain: str | None = None) -> dict:
     rotas = db.execute(
         select(DomainEvent.atom_id, DomainEvent.payload["decision"].astext).where(
             DomainEvent.event_type == events.DECISION_MADE,
-            DomainEvent.payload["decision"].astext.in_(["AUTO_APPROVED", "NEEDS_HUMAN_REVIEW"]),
+            DomainEvent.payload["decision"].astext.in_(
+                ["AUTO_APPROVED", "PROVISIONAL", "NEEDS_HUMAN_REVIEW"]
+            ),
         )
     ).all()
     decisões = {aid: d for aid, d in rotas if (not domain or aid in escopo)}
     autos = {aid for aid, d in decisões.items() if d == "AUTO_APPROVED"}
+    provisorios = {aid for aid, d in decisões.items() if d == "PROVISIONAL"}
 
     # §80 false auto-approval: auto-aprovados depois corrigidos/rejeitados/desafiados
     corrigidos = 0
@@ -309,7 +378,12 @@ def attention_kpis(db: Session, *, domain: str | None = None) -> dict:
         ),
         "pct_rejected": round(len(rejeicoes) / decididos, 4),
         "automation_rate": round(len(autos) / len(decisões), 4) if decisões else None,
+        "provisional_rate": round(len(provisorios) / len(decisões), 4) if decisões else None,
+        "resolved_without_human_rate": (
+            round((len(autos) + len(provisorios)) / len(decisões), 4) if decisões else None
+        ),
         "false_auto_approval_rate": round(corrigidos / len(autos), 4) if autos else None,
+        "provisional_audit": provisional_audit(db, domain=domain),
         "human_override_rate": round(overrides / len(owner_decisions), 4)
         if owner_decisions
         else None,

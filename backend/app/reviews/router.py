@@ -1,6 +1,6 @@
 """API do Semantic Governance Workspace (PRD §95)."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -117,6 +117,36 @@ def request_evidence(
     atom = rsvc.request_evidence(db, atom_id, user, body.note)
     db.commit()
     return {"id": atom.id, "status": atom.status, "lock_version": atom.lock_version}
+
+
+class BulkVoteIn(BaseModel):
+    atom_ids: list[str] = Field(min_length=1, max_length=200)
+    action: ReviewAction
+    comment: str | None = None
+
+
+@router.post("/inbox/bulk")
+def bulk_vote(
+    body: BulkVoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Revisão por filtro: o mesmo voto em vários atoms (provisórios ou pendentes). Cada um
+    passa pelos mesmos gates do voto individual; falhas são devolvidas por atom."""
+    return rsvc.bulk_vote(db, user, body.atom_ids, body.action, body.comment)
+
+
+@router.get("/inbox/audit-sample")
+def audit_sample(
+    domain: str | None = None,
+    capability: str | None = None,
+    n: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Amostra aleatória de PROVISIONAL sem voto no escopo do revisor: a fila curta de
+    auditoria que calibra o piso provisório (false_provisional_rate)."""
+    return rsvc.audit_sample(db, user, domain=domain, capability=capability, n=n)
 
 
 @router.post("/{atom_id}/ready-for-decision")

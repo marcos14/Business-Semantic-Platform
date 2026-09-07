@@ -52,3 +52,17 @@ def test_guards():
 def test_estados_terminais():
     assert TRANSITIONS[S.REJECTED] == frozenset()
     assert TRANSITIONS[S.SUPERSEDED] == frozenset()
+
+
+def test_faixa_provisoria():
+    # sistema publica como provisório; sobe a canonical (evidência ou humano por política)
+    validate_transition(S.READY_FOR_EVALUATION, S.PROVISIONAL)
+    validate_transition(S.PROVISIONAL, S.CANONICAL)
+    validate_transition(S.PROVISIONAL, S.READY_FOR_EVALUATION)  # nova evidência reavalia
+    validate_transition(S.PROVISIONAL, S.IN_REVIEW)  # voto que não confirma abre discussão
+    validate_transition(S.IN_REVIEW, S.CANONICAL)  # política dispensa owner
+    assert is_system_only(S.PROVISIONAL)
+    with pytest.raises(InvalidTransitionError):
+        validate_transition(S.PROVISIONAL, S.DECISION_PENDING)
+    with pytest.raises(InvalidTransitionError):
+        validate_transition(S.CANDIDATE, S.PROVISIONAL)  # sempre passa pela avaliação

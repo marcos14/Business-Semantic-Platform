@@ -43,6 +43,16 @@ o sistêmico repetitivo do mesmo formulário/módulo em um único candidate (ex.
 exige os campos A, B e C e valida as datas do período").
    Um gestor da área reconheceria HIGH/MEDIUM/LOW como regra do negócio; SYSTEMIC ele \
 delegaria ao time técnico sem discutir.
+9. SÍTIO E MECANISMO de cada evidence: informe `symbol` = nome da rotina que contém as \
+linhas citadas (procedure/function/event handler/método; em Delphi, ex.: \
+`TFrmPedido.DBGridBeforePost`) e `mechanism` = POR QUAL MECANISMO o trecho impõe a regra: \
+VALIDATION (rejeita/exige entrada), CALCULATION (fórmula), SQL (SQL embutido, constraint, \
+trigger), CONSTANT (constante/parâmetro/enum), MESSAGE (mensagem ao usuário que enuncia a \
+regra), UI_STATE (habilita/desabilita/visibilidade), TEST (asserção de teste). Em legados \
+onde um módulo mora inteiro numa unit, a MESMA regra em rotinas e mecanismos diferentes do \
+mesmo arquivo é corroboração: cite cada sítio como uma evidence separada (uma por rotina), \
+não uma faixa enorme. Mensagens de erro ao usuário são evidência forte: enunciam a regra \
+em linguagem de negócio.
 """
 
 # ---------- linguagem ----------
@@ -154,6 +164,18 @@ _EVIDENCE_ITEM = {
             "type": "string",
             "description": "tradução de negócio do que este trecho evidencia",
         },
+        "symbol": {
+            "type": "string",
+            "description": "rotina que contém as linhas (procedure/function/handler/método)",
+        },
+        "mechanism": {
+            "type": "string",
+            "enum": [
+                "VALIDATION", "CALCULATION", "SQL", "CONSTANT", "MESSAGE", "UI_STATE",
+                "TEST", "REACHABILITY", "OTHER",
+            ],
+            "description": "por qual mecanismo o trecho impõe a regra (regra 9)",
+        },
     },
 }
 
@@ -264,9 +286,18 @@ CORROBORATION_SCHEMA = {
                     "atom_id": {"type": "string"},
                     "verdict": {
                         "type": "string",
-                        "enum": ["SUPPORTS", "CONTRADICTS", "NOT_FOUND"],
+                        "enum": ["SUPPORTS", "CONTRADICTS", "NOT_FOUND", "SIMILAR_DIFFERENT_SCOPE"],
                     },
                     "note": {"type": "string"},
+                    "variant_title": {
+                        "type": "string",
+                        "description": "só para SIMILAR_DIFFERENT_SCOPE: título da regra irmã",
+                    },
+                    "variant_statement": {
+                        "type": "string",
+                        "description": "só para SIMILAR_DIFFERENT_SCOPE: a regra irmã, "
+                        "completa, no escopo em que foi encontrada",
+                    },
                     "evidence": {"type": "array", "items": _EVIDENCE_ITEM},
                 },
             },
@@ -393,21 +424,42 @@ def corroboration_prompt(
     capability: dict | None = None,
     languages: str = "",
 ) -> str:
-    listagem = "\n".join(
-        f"- {c['atom_id']}: {c['statement']}" for c in candidates
-    )
+    blocos = []
+    for c in candidates:
+        linha = f"- {c['atom_id']}: {c['statement']}"
+        citados = c.get("cited") or []
+        if citados:
+            linha += f"\n    já citado (NÃO repita estes sítios): {'; '.join(citados)}"
+        ancoras = c.get("anchors") or []
+        if ancoras:
+            linha += f"\n    âncoras de escopo (tabelas/forms/datasets): {', '.join(ancoras)}"
+        blocos.append(linha)
+    listagem = "\n".join(blocos)
     return f"""{POLICY}
 {business_context(domain, capability)}
-## Sua tarefa: CORROBORATION (PRD §88)
+## Sua tarefa: CORROBORATION (PRD §88) — evidência em OUTROS sítios, no MESMO escopo
 
 Abaixo estão afirmações de negócio candidatas extraídas deste repositório por OUTRO
-agente. Para cada uma, procure INDEPENDENTEMENTE no repositório evidência que a
-sustente ou contradiga — leia os arquivos de verdade e cite linhas exatas.
+agente, com os sítios que já sustentam cada uma. Para cada afirmação, procure
+INDEPENDENTEMENTE evidência em sítios AINDA NÃO citados — outra rotina do mesmo arquivo
+(BeforePost, botão, SQL embutido, constante, mensagem ao usuário), outro arquivo que
+implemente/valide/teste a mesma regra, a prova de que o trecho está vivo — e cite linhas
+exatas que você LEU. Citar de novo um sítio já listado não soma nada.
 {languages}
+Escopo importa: a regra precisa valer para o MESMO processo/entidade (as âncoras ajudam:
+mesma tabela, mesmo formulário, mesmo dataset). Regra parecida em OUTRO processo (ex.:
+desconto do Orçamento quando a afirmação é sobre o Pedido) NÃO é suporte nem contradição.
+
 Vereditos:
-- SUPPORTS: você encontrou evidência que sustenta a afirmação (cite-a);
-- CONTRADICTS: você encontrou evidência de comportamento diferente (cite-a);
-- NOT_FOUND: você não encontrou evidência relevante (evidence vazia; não invente).
+- SUPPORTS: evidência em sítio novo que sustenta a afirmação no mesmo escopo (cite-a);
+- CONTRADICTS: evidência de comportamento diferente no MESMO escopo (cite-a);
+- SIMILAR_DIFFERENT_SCOPE: regra parecida, mas de outro processo/entidade — cite o trecho,
+  e em `variant_statement` enuncie a regra irmã completa (ela vira um candidate próprio);
+- NOT_FOUND: nada relevante além do já citado (evidence vazia; não invente).
+
+Alcançabilidade: se você verificar que a unit/rotina está no projeto e é chamada (ex.: a
+unit no .dpr, o form registrado, a procedure invocada), cite esse trecho como evidence com
+`mechanism` = REACHABILITY dentro de um finding SUPPORTS. É prova de que o código está vivo.
 
 Afirmações a corroborar:
 {listagem}

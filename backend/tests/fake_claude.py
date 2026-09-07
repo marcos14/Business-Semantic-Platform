@@ -135,6 +135,62 @@ def main() -> int:
             }
         )
         return 0
+    if scenario == "corrob_variant":
+        # regra parecida em OUTRO escopo: nunca vira suporte nem conflito (VARIANT_OF)
+        atom_id = os.environ.get("FAKE_ATOM_ID", "X.Y.RULE.0001")
+        result_event(
+            structured={
+                "findings": [
+                    {
+                        "atom_id": atom_id,
+                        "verdict": "SIMILAR_DIFFERENT_SCOPE",
+                        "note": "regra parecida no módulo de orçamento",
+                        "variant_title": "Orçamento vencido não acumula juros",
+                        "variant_statement": "Um orçamento vencido não acumula juros; "
+                        "apenas boletos acumulam.",
+                        "evidence": [
+                            {"file": "billing.go", "start_line": 1, "end_line": 2,
+                             "summary": "cabeçalho do módulo"}
+                        ],
+                    }
+                ]
+            }
+        )
+        return 0
+    if scenario == "discovery_dup":
+        # duplicata exata citando OUTRO sítio: reforça o atom existente em vez de descartar
+        result_event(
+            structured={
+                "candidates": [
+                    {
+                        "kind": "rule",
+                        "title": "Boleto vencido acumula juros diários",
+                        "statement": "Um boleto vencido acumula juros de 1% ao dia sobre o valor.",
+                        "classification": "OBSERVED_BEHAVIOR",
+                        "risk": "MEDIUM",
+                        "significance": "HIGH",
+                        "evidence": [
+                            {"file": "billing.go", "start_line": 4, "end_line": 6,
+                             "summary": "cálculo de juros", "symbol": "JurosDiarios",
+                             "mechanism": "CALCULATION"}
+                        ],
+                    },
+                    {
+                        "kind": "rule",
+                        "title": "Juros diários (duplicata com outra evidência)",
+                        "statement": "Um boleto vencido acumula juros de 1% ao dia sobre o valor.",
+                        "classification": "OBSERVED_BEHAVIOR",
+                        "significance": "HIGH",
+                        "evidence": [
+                            {"file": "billing_test.go", "start_line": 2, "end_line": 4,
+                             "summary": "teste garante 1% ao dia"}
+                        ],
+                    },
+                ],
+                "questions": [],
+            }
+        )
+        return 0
     if scenario == "corrob_ok":
         atom_id = os.environ.get("FAKE_ATOM_ID", "X.Y.RULE.0001")
         result_event(

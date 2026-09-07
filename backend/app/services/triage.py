@@ -188,3 +188,49 @@ def triage_pending(
             resumo["still_human"] += 1
     db.commit()
     return resumo
+
+
+def reevaluate_pending(
+    db: Session, *, domain: str | None = None, limit: int = 500, actor: str = ACTOR
+) -> dict:
+    """Re-roteia os pendentes de revisão humana SEM voto sob as regras atuais (faixas,
+    políticas por relevância, perfil de evidência). Sem LLM. Nunca mexe em atom votado."""
+    votados = select(Vote.atom_id)
+    stmt = (
+        select(KnowledgeAtom)
+        .where(
+            KnowledgeAtom.status == str(LifecycleStatus.NEEDS_HUMAN_REVIEW),
+            KnowledgeAtom.kind.in_(BUSINESS_KINDS),
+            KnowledgeAtom.id.not_in(votados),
+        )
+        .order_by(KnowledgeAtom.created_at)
+        .limit(limit)
+    )
+    if domain:
+        stmt = stmt.where(KnowledgeAtom.domain == domain)
+    resumo = {
+        "considered": 0, "rerouted": 0, "canonical": 0, "provisional": 0,
+        "awaiting_evidence": 0, "still_human": 0,
+    }
+    for atom in list(db.scalars(stmt)):
+        resumo["considered"] += 1
+        ksvc.change_status(
+            db, atom.id, actor=actor, new_status=LifecycleStatus.CORROBORATING,
+            reason="re-roteamento sob as faixas de confiança atuais",
+            expected_lock_version=atom.lock_version,
+        )
+        res = evaluation.evaluate_atom(db, atom.id, actor=actor, trigger="reroute")
+        status = res.get("status")
+        if status == str(LifecycleStatus.CANONICAL):
+            resumo["canonical"] += 1
+            resumo["rerouted"] += 1
+        elif status == str(LifecycleStatus.PROVISIONAL):
+            resumo["provisional"] += 1
+            resumo["rerouted"] += 1
+        elif status == str(LifecycleStatus.CORROBORATING):
+            resumo["awaiting_evidence"] += 1
+            resumo["rerouted"] += 1
+        else:
+            resumo["still_human"] += 1
+    db.commit()
+    return resumo

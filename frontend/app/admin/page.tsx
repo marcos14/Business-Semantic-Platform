@@ -17,14 +17,29 @@ function slugify(s: string): string {
     .slice(0, 100);
 }
 
-type Domain = { slug: string; name: string };
+type Domain = { slug: string; name: string; evidence_profile?: string | null };
+type EvidenceProfile = {
+  name: string;
+  site_weights?: Record<string, number>;
+  same_file_weights?: Record<string, number>;
+  lineage_cap?: number | null;
+};
 type Capability = { slug: string; domain_slug: string; name: string; description?: string | null };
 
 const textarea = { ...input, width: "100%", minHeight: 56, fontFamily: "inherit", resize: "vertical" as const };
 
-function NovoDomain({ onCriado, onErro }: { onCriado: () => void; onErro: (m: string) => void }) {
+function NovoDomain({
+  profiles,
+  onCriado,
+  onErro,
+}: {
+  profiles: EvidenceProfile[];
+  onCriado: () => void;
+  onErro: (m: string) => void;
+}) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [evidenceProfile, setEvidenceProfile] = useState("");
   const [slugManual, setSlugManual] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const slugOk = SLUG_RE.test(slug);
@@ -34,9 +49,14 @@ function NovoDomain({ onCriado, onErro }: { onCriado: () => void; onErro: (m: st
     if (!slugOk) return onErro("Slug inválido: use letras minúsculas, números e hífens");
     setSalvando(true);
     try {
-      await post("/admin/domains", { slug, name: name.trim() });
+      await post("/admin/domains", {
+        slug,
+        name: name.trim(),
+        ...(evidenceProfile ? { evidence_profile: evidenceProfile } : {}),
+      });
       setName("");
       setSlug("");
+      setEvidenceProfile("");
       setSlugManual(false);
       onCriado();
     } catch (e: any) {
@@ -69,6 +89,19 @@ function NovoDomain({ onCriado, onErro }: { onCriado: () => void; onErro: (m: st
         onKeyDown={(e) => e.key === "Enter" && salvar()}
         title="Identificador único: letras minúsculas, números e hífens"
       />
+      <select
+        style={input}
+        value={evidenceProfile}
+        onChange={(e) => setEvidenceProfile(e.target.value)}
+        title="Perfil de evidência (pesos do Confidence Engine)"
+      >
+        <option value="">perfil de evidência (padrão)</option>
+        {profiles.map((p) => (
+          <option key={p.name} value={p.name}>
+            {p.name}
+          </option>
+        ))}
+      </select>
       <button style={btnPrimary} disabled={salvando} onClick={salvar}>
         {salvando ? "Salvando…" : "Adicionar domain"}
       </button>
@@ -223,6 +256,7 @@ function LinhaCapability({ c, onSalva, onErro }: { c: Capability; onSalva: () =>
 export default function AdminPage() {
   const [domains, setDomains] = useState<Domain[] | null>(null);
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [profiles, setProfiles] = useState<EvidenceProfile[]>([]);
   const [acesso, setAcesso] = useState<"carregando" | "ok" | "negado">("carregando");
   const [filtro, setFiltro] = useState<string>("");
   const [msg, setMsg] = useState<{ tipo: "erro" | "ok"; texto: string } | null>(null);
@@ -238,6 +272,7 @@ export default function AdminPage() {
         setAcesso("negado");
       });
     get<Capability[]>("/admin/capabilities").then(setCapabilities).catch(() => {});
+    get<EvidenceProfile[]>("/admin/evidence-profiles").then(setProfiles).catch(() => {});
   }, []);
   useEffect(reload, [reload]);
 
@@ -253,6 +288,14 @@ export default function AdminPage() {
   const ok = (texto: string) => {
     setMsg({ tipo: "ok", texto });
     reload();
+  };
+  const alterarPerfil = async (slug: string, evidence_profile: string | null) => {
+    try {
+      await api(`/admin/domains/${slug}`, { method: "PATCH", body: JSON.stringify({ evidence_profile }) });
+      ok(`Perfil de evidência de ${slug}: ${evidence_profile ?? "(padrão)"}.`);
+    } catch (e: any) {
+      erro(e.message);
+    }
   };
 
   return (
@@ -288,7 +331,7 @@ export default function AdminPage() {
               Um domain agrupa capabilities e define o escopo das políticas e dos papéis
               (reviewer, domain expert, decision owner).
             </p>
-            <NovoDomain onCriado={() => ok("Domain criado.")} onErro={erro} />
+            <NovoDomain profiles={profiles} onCriado={() => ok("Domain criado.")} onErro={erro} />
           </div>
 
           <div style={{ ...card, border: "2px solid #2b6cb0" }}>
@@ -331,6 +374,11 @@ export default function AdminPage() {
             )}
           </div>
 
+          <p style={{ fontSize: 13, color: "#718096", margin: "0 0 10px" }}>
+            Perfil de evidência: pesos do Confidence Engine. legacy-hostile = ERP antigo sem
+            documentação/testes confiáveis: um arquivo de código já publica como provisório, dois fecham
+            MEDIUM.
+          </p>
           {domains?.length === 0 && <p style={{ color: "#718096" }}>Nenhum domain cadastrado ainda.</p>}
           {domainsVisiveis.map((d) => {
             const caps = capsPorDomain[d.slug] ?? [];
@@ -340,6 +388,22 @@ export default function AdminPage() {
                   <Badge text={d.slug} color="#2b6cb0" />
                   <strong style={{ flex: 1 }}>{d.name}</strong>
                   <span style={{ fontSize: 12, color: "#718096" }}>{caps.length} capability(ies)</span>
+                  <select
+                    style={{ ...input, padding: "4px 8px", fontSize: 12 }}
+                    value={d.evidence_profile ?? ""}
+                    onChange={(e) => alterarPerfil(d.slug, e.target.value || null)}
+                    title="Perfil de evidência (pesos do Confidence Engine)"
+                  >
+                    <option value="">(padrão)</option>
+                    {d.evidence_profile && !profiles.some((p) => p.name === d.evidence_profile) && (
+                      <option value={d.evidence_profile}>{d.evidence_profile}</option>
+                    )}
+                    {profiles.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
                   {filtro !== d.slug && (
                     <button
                       style={btn}

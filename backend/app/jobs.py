@@ -316,6 +316,12 @@ def run_directed_job(
         enfileirados = 0
         if run.status == "succeeded":
             defer_export(trigger=f"discovery:{run.id}")
+            if batch_id and settings.evidence_search_auto:
+                # cascata, estágio 1: quando a campanha assentar, corroborar por prioridade
+                defer_evidence_search(
+                    source_id=source_id, domain=domain, capability=capability,
+                    actor=actor, batch_id=batch_id, budget_usd=budget_usd,
+                )
             for fu in getattr(run, "followups", []) or []:
                 if bid is None:
                     break
@@ -341,6 +347,104 @@ def run_directed_job(
             "candidates": run.candidates_created, "cost_usd": run.cost_usd,
             "followups_enqueued": enfileirados,
         }
+
+
+@job_app.task(name="jobs.evidence_search", queue="discovery")
+def evidence_search_job(
+    source_id: str,
+    domain: str,
+    capability: str | None = None,
+    actor: str = "system:scheduler",
+    batch_id: str | None = None,
+    max_batches: int | None = None,
+    budget_usd: float = 5.0,
+) -> dict:
+    """Cascata de evidência, estágio 1 (mesma fonte). Disparada ao fim de uma campanha (com
+    `batch_id`: espera os turnos terminarem) ou sob demanda. Um lote = um run de corroboração
+    com até 30 atoms, por prioridade; para quando não resta atom elegível."""
+    import uuid as _uuid
+
+    from sqlalchemy import func, select, text
+
+    from app.db import SessionLocal
+    from app.models.discovery import DiscoveryRun
+    from app.services.discovery import run_evidence_search
+
+    with SessionLocal() as db:
+        if batch_id:
+            bid = _uuid.UUID(batch_id)
+            rodando = db.scalar(
+                select(func.count()).select_from(DiscoveryRun).where(
+                    DiscoveryRun.batch_id == bid, DiscoveryRun.status == "running"
+                )
+            ) or 0
+            try:
+                pendentes = db.execute(
+                    text(
+                        "select count(*) from procrastinate_jobs where status in ('todo','doing') "
+                        "and task_name = 'jobs.run_directed' and args->>'batch_id' = :b"
+                    ),
+                    {"b": batch_id},
+                ).scalar() or 0
+            except Exception:
+                db.rollback()
+                pendentes = 0
+            if rodando or pendentes:
+                defer_evidence_search(
+                    source_id=source_id, domain=domain, capability=capability, actor=actor,
+                    batch_id=batch_id, max_batches=max_batches, budget_usd=budget_usd,
+                )
+                return {"deferred": True, "running": rodando, "pending": pendentes}
+        r = run_evidence_search(
+            db, source_id=_uuid.UUID(source_id), domain=domain, capability=capability,
+            actor=actor, max_batches=max_batches, budget_usd=budget_usd,
+        )
+    if r["status"] == "limit":
+        # franquia: reagenda o mesmo job para depois do reset
+        segundos = delay_until_reset((r["runs"][-1] or {}).get("error") if r["runs"] else None)
+        evidence_search_job.configure(schedule_in={"seconds": segundos}).defer(
+            source_id=source_id, domain=domain, capability=capability, actor=actor,
+            batch_id=None, max_batches=max_batches, budget_usd=budget_usd,
+        )
+    if r["batches"]:
+        defer_export(trigger=f"evidence-search:{domain}/{capability or '*'}")
+    return r
+
+
+def defer_evidence_search(
+    *,
+    source_id: str,
+    domain: str,
+    capability: str | None,
+    actor: str,
+    batch_id: str | None = None,
+    max_batches: int | None = None,
+    budget_usd: float = 5.0,
+    delay_min: int | None = None,
+) -> bool:
+    """Enfileira a busca de evidência com queueing lock por campanha/capability: muitos turnos
+    terminando geram UM job, agendado para depois de a campanha assentar."""
+    chave = f"evidence-search:{batch_id or (domain + '/' + (capability or '*'))}"
+    atraso = settings.evidence_search_delay_min if delay_min is None else delay_min
+    job = evidence_search_job.configure(
+        queueing_lock=chave, schedule_in={"minutes": atraso} if atraso else None
+    )
+    kwargs = dict(
+        source_id=source_id, domain=domain, capability=capability, actor=actor,
+        batch_id=batch_id, max_batches=max_batches, budget_usd=budget_usd,
+    )
+    try:
+        try:
+            job.defer(**kwargs)
+        except procrastinate.exceptions.AppNotOpen:
+            with job_app.open():
+                job.defer(**kwargs)
+        return True
+    except procrastinate.exceptions.AlreadyEnqueued:
+        return True
+    except Exception:
+        log.warning("defer da busca de evidência falhou", exc_info=True)
+        return False
 
 
 @job_app.periodic(cron="*/30 * * * *")

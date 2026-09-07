@@ -10,6 +10,7 @@ const COLUNAS: Record<string, string> = {
   in_discussion: "Em discussão",
   needs_evidence: "Precisa de evidência",
   needs_decision: "Aguardando decisão",
+  provisional: "Provisórios",
   approved: "Aprovados",
   rejected: "Rejeitados",
 };

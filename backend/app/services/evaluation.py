@@ -1,8 +1,9 @@
 """Orquestração da avaliação: sinais → score → política → roteamento (§27-§35, §86-§87).
 
 Score é sempre calculado e persistido (append-only). Roteamento só ocorre em
-status pré-review (CANDIDATE/CORROBORATING/READY_FOR_EVALUATION) — um atom em
-fluxo humano ou canonical nunca é re-roteado automaticamente (§74).
+status pré-review (CANDIDATE/CORROBORATING/READY_FOR_EVALUATION) e na faixa
+PROVISIONAL — um atom em fluxo humano ou canonical nunca é re-roteado
+automaticamente (§74).
 """
 
 import json
@@ -12,21 +13,24 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.kernel import events
-from app.kernel.confidence import EvidenceFact, compute_score
-from app.kernel.ir.envelope import EvidenceRelation, LifecycleStatus
+from app.kernel.confidence import EvidenceFact, EvidenceProfile, compute_score
+from app.kernel.ir.envelope import EvidenceRelation, EvidenceType, LifecycleStatus
 from app.kernel.linter import lint_db
 from app.kernel.policy import (
     AUTO_APPROVED,
     AWAIT_EVIDENCE,
+    PROVISIONAL,
     AtomScope,
+    EffectivePolicy,
     PolicyView,
     resolve,
     route,
 )
 from app.models.confidence import ConfidenceScore, ConfidenceSignal, Policy
-from app.models.knowledge import AtomRelation, Evidence, EvidenceLink
+from app.models.knowledge import AtomRelation, Evidence, EvidenceLink, KnowledgeAtom
 from app.services import knowledge as ksvc
 from app.services import notify
+from app.services.profiles import profile_for_domain
 
 SYSTEM_ACTOR = "system:confidence-engine"
 
@@ -34,15 +38,18 @@ ROUTABLE_STATUSES = {
     LifecycleStatus.CANDIDATE,
     LifecycleStatus.CORROBORATING,
     LifecycleStatus.READY_FOR_EVALUATION,
+    # provisório continua no ciclo automático: nova evidência pode levá-lo a CANONICAL
+    LifecycleStatus.PROVISIONAL,
 }
 
 
 def _lineage_key(ev: Evidence) -> str:
-    """Heurística de independência (§29): mesmo ARQUIVO = mesma linhagem.
+    """Chave de independência grossa (§29): mesmo ARQUIVO = mesma linhagem; o engine v2
+    refina por sítio (rotina) dentro do arquivo.
 
     O arquivo vem antes do source_id: uma Source de repositório inteiro tornaria
-    todas as evidências "iguais" (bug corrigido no engine v1.1). Sem arquivo,
-    cai para a source; sem ambos, cada evidência é sua própria linhagem.
+    todas as evidências "iguais". Sem arquivo, cai para a source; sem ambos, cada
+    evidência é sua própria linhagem.
     """
     loc = ev.location or {}
     if loc.get("file"):
@@ -52,6 +59,32 @@ def _lineage_key(ev: Evidence) -> str:
     return f"evidence:{ev.id}"
 
 
+def _int(v) -> int | None:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _fact(link: EvidenceLink, ev: Evidence) -> EvidenceFact:
+    loc = ev.location or {}
+    meta = ev.meta or {}
+    return EvidenceFact(
+        id=str(ev.id),
+        type=ev.type,
+        relation=link.relation,
+        lineage=_lineage_key(ev),
+        created_by=ev.created_by,
+        origin=ev.origin,
+        file=loc.get("file"),
+        symbol=loc.get("symbol"),
+        start_line=_int(loc.get("start_line")),
+        end_line=_int(loc.get("end_line")),
+        mechanism=meta.get("mechanism"),
+        source_id=str(ev.source_id) if ev.source_id else None,
+    )
+
+
 def collect_evidence_facts(db: Session, atom_id: str) -> list[EvidenceFact]:
     rows = db.execute(
         select(EvidenceLink, Evidence)
@@ -59,21 +92,17 @@ def collect_evidence_facts(db: Session, atom_id: str) -> list[EvidenceFact]:
         .where(EvidenceLink.atom_id == atom_id)
         .order_by(Evidence.created_at)
     ).all()
-    return [
-        EvidenceFact(
-            id=str(ev.id),
-            type=ev.type,
-            relation=link.relation,
-            lineage=_lineage_key(ev),
-            created_by=ev.created_by,
-            origin=ev.origin,
-        )
-        for link, ev in rows
-    ]
+    return [_fact(link, ev) for link, ev in rows]
 
 
-def _has_conflict(db: Session, atom_id: str, facts: list[EvidenceFact]) -> bool:
-    if any(f.relation == EvidenceRelation.CONTRADICTS for f in facts):
+def _has_conflict(
+    db: Session, atom_id: str, facts: list[EvidenceFact], profile: EvidenceProfile
+) -> bool:
+    for f in facts:
+        if f.relation != EvidenceRelation.CONTRADICTS:
+            continue
+        if profile.treats_document_as_divergence() and f.type == EvidenceType.DOCUMENT:
+            continue  # documento velho contradizendo código não é conflito neste perfil
         return True
     rel = db.scalar(
         select(AtomRelation).where(
@@ -95,23 +124,35 @@ def load_policies(db: Session) -> list[PolicyView]:
             human_review_required=p.human_review_required,
             min_reviewers=p.min_reviewers,
             require_owner_approval=p.require_owner_approval,
+            provisional_floor=p.provisional_floor,
         )
         for p in db.scalars(select(Policy).where(Policy.active.is_(True)))
     ]
+
+
+def effective_policy(db: Session, atom: KnowledgeAtom) -> EffectivePolicy:
+    return resolve(
+        load_policies(db),
+        AtomScope(atom.domain, atom.capability, atom.kind, atom.risk, atom.significance),
+    )
 
 
 def evaluate_atom(
     db: Session, atom_id: str, *, actor: str = SYSTEM_ACTOR, trigger: str = "manual"
 ) -> dict:
     atom = ksvc.get_atom(db, atom_id)
+    profile = profile_for_domain(db, atom.domain)
 
     # 1. Score (sempre; histórico append-only)
     facts = collect_evidence_facts(db, atom_id)
-    result = compute_score(facts, body_size=len(json.dumps(atom.body or {})))
+    result = compute_score(
+        facts, body_size=len(json.dumps(atom.body or {})), profile=profile
+    )
     score_row = ConfidenceScore(
         atom_id=atom.id,
         score=result.score,
         engine_version=result.engine_version,
+        profile=result.profile,
         trigger=trigger,
         actor=actor,
     )
@@ -137,6 +178,7 @@ def evaluate_atom(
                 "from": atom.confidence,
                 "to": result.score,
                 "engine_version": result.engine_version,
+                "profile": result.profile,
             },
         )
         atom.confidence = result.score
@@ -145,27 +187,33 @@ def evaluate_atom(
         "atom_id": atom.id,
         "score": result.score,
         "engine_version": result.engine_version,
+        "profile": result.profile,
         "explanation": result.explanation_lines(),
         "routed": False,
     }
 
-    # 2. Roteamento (§31/§86) — apenas em status pré-review
+    # 2. Roteamento (§31/§86) — apenas em status pré-review (e provisório)
     if LifecycleStatus(atom.status) not in ROUTABLE_STATUSES:
         summary["reason_not_routed"] = f"status {atom.status} não é roteável"
         return summary
 
-    eff = resolve(load_policies(db), AtomScope(atom.domain, atom.capability, atom.kind, atom.risk))
+    eff = effective_policy(db, atom)
     lint_errors = sum(
         1 for f in lint_db(db) if f.atom_id == atom.id and f.severity == "error"
+    )
+    tipos_suporte = frozenset(
+        f.type for f in facts if f.relation == EvidenceRelation.SUPPORTS
     )
     decision = route(
         score=result.score,
         policy=eff,
-        has_conflict=_has_conflict(db, atom.id, facts),
+        has_conflict=_has_conflict(db, atom.id, facts, profile),
         risk=atom.risk,
         lint_errors=lint_errors,
         significance=atom.significance,
         low_significance_threshold=settings.low_significance_threshold,
+        classification=atom.classification,
+        evidence_types=tipos_suporte,
     )
 
     # Audit do §87: confidence, threshold, evidence, policy, versões, timestamp
@@ -180,11 +228,21 @@ def evaluate_atom(
             "checks": list(decision.checks),
             "confidence": result.score,
             "engine_version": result.engine_version,
+            "profile": result.profile,
             "policy": eff.as_dict(),
             "evidence": [f.id for f in facts],
             "trigger": trigger,
         },
     )
+
+    ja_provisorio = atom.status == str(LifecycleStatus.PROVISIONAL)
+    if ja_provisorio and decision.outcome == PROVISIONAL:
+        # continua publicado como provisório: nada a mudar no lifecycle
+        summary.update(
+            routed=True, decision=decision.outcome, reason=decision.reason,
+            status=atom.status, policy=eff.as_dict(),
+        )
+        return summary
 
     if atom.status != LifecycleStatus.READY_FOR_EVALUATION:
         atom = ksvc.change_status(
@@ -212,7 +270,11 @@ def evaluate_atom(
             atom.id,
             actor=actor,
             new_status=LifecycleStatus.CANONICAL,
-            reason="auto-approval por política (§86)",
+            reason=(
+                "promoção do provisório por nova evidência (§86)"
+                if ja_provisorio
+                else "auto-approval por política (§86)"
+            ),
             expected_lock_version=atom.lock_version,
             authority_granted=True,
         )
@@ -227,6 +289,16 @@ def evaluate_atom(
             reason=decision.reason,
             expected_lock_version=atom.lock_version,
         )
+    elif decision.outcome == PROVISIONAL:
+        atom = ksvc.change_status(
+            db,
+            atom.id,
+            actor=actor,
+            new_status=LifecycleStatus.PROVISIONAL,
+            reason=decision.reason,
+            expected_lock_version=atom.lock_version,
+            system_action=True,
+        )
     else:
         atom = ksvc.change_status(
             db,
@@ -236,13 +308,14 @@ def evaluate_atom(
             reason=decision.reason,
             expected_lock_version=atom.lock_version,
         )
-        # §73: "Threshold/policy causes review"
-        notify.notify_reviewers(
-            db,
-            atom,
-            type="review_needed",
-            message=f"Revisão necessária ({decision.reason}): {atom.title}",
-        )
+        # §73: "Threshold/policy causes review" (re-roteamento em lote não re-notifica)
+        if trigger != "reroute":
+            notify.notify_reviewers(
+                db,
+                atom,
+                type="review_needed",
+                message=f"Revisão necessária ({decision.reason}): {atom.title}",
+            )
 
     summary.update(
         routed=True,
@@ -267,6 +340,7 @@ def latest_confidence(db: Session, atom_id: str) -> dict | None:
     return {
         "score": row.score,
         "engine_version": row.engine_version,
+        "profile": row.profile,
         "trigger": row.trigger,
         "computed_at": row.computed_at.isoformat(),
         "signals": [

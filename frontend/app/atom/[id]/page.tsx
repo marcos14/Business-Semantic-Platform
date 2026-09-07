@@ -209,6 +209,12 @@ export default function DecisionRoom({ params }: { params: Promise<{ id: string 
           </span>
         </div>
         <h2 style={{ margin: "10px 0 4px" }}>{a.title}</h2>
+        {a.status === "PROVISIONAL" && (
+          <p style={{ fontSize: 13, color: "#b7791f", margin: "0 0 6px" }}>
+            Provisório: publicado com boa confiança, ainda não confirmado. Um CONFIRM pode canonicalizar
+            se a política dispensar o owner; um REJECT abre a discussão.
+          </p>
+        )}
         {a.statement && <p style={{ fontSize: 15, margin: "4px 0" }}>{a.statement}</p>}
         {a.description && <p style={{ color: "#718096", margin: "4px 0" }}>{a.description}</p>}
         <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center" }}>

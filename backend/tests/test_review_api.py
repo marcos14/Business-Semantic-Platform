@@ -255,6 +255,7 @@ def test_kanban_colunas(client, ctx):
         "in_discussion",
         "needs_evidence",
         "needs_decision",
+        "provisional",
         "approved",
         "rejected",
     }

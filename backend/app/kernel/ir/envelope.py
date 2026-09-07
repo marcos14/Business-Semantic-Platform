@@ -23,13 +23,19 @@ class AtomKind(enum.StrEnum):
 
 
 class LifecycleStatus(enum.StrEnum):
-    """Estados do knowledge lifecycle (PRD §26)."""
+    """Estados do knowledge lifecycle (PRD §26).
+
+    PROVISIONAL (faixa intermediária): passou do piso de confiança da política, sem conflito,
+    sem risco crítico e com linter limpo — é publicado e consumível COM RÓTULO, corrigível por
+    um único humano, e sobe a CANONICAL sozinho quando nova evidência atinge o limiar.
+    """
 
     DISCOVERED = "DISCOVERED"
     CANDIDATE = "CANDIDATE"
     CORROBORATING = "CORROBORATING"
     READY_FOR_EVALUATION = "READY_FOR_EVALUATION"
     AUTO_APPROVED = "AUTO_APPROVED"
+    PROVISIONAL = "PROVISIONAL"
     NEEDS_HUMAN_REVIEW = "NEEDS_HUMAN_REVIEW"
     IN_REVIEW = "IN_REVIEW"
     DECISION_PENDING = "DECISION_PENDING"
@@ -52,6 +58,13 @@ class Classification(enum.StrEnum):
     KNOWN_BUG = "KNOWN_BUG"
     DEPRECATED_BEHAVIOR = "DEPRECATED_BEHAVIOR"
     UNKNOWN = "UNKNOWN"
+
+
+# Classificações que afirmam INTENÇÃO do negócio: código sozinho prova "o sistema faz",
+# não "o negócio quer". Só com evidência de código/teste, o teto é PROVISIONAL.
+INTENT_CLASSIFICATIONS = frozenset(
+    {Classification.INTENDED_BEHAVIOR, Classification.MANDATED_BEHAVIOR}
+)
 
 
 class RiskLevel(enum.StrEnum):
@@ -104,6 +117,29 @@ class EvidenceType(enum.StrEnum):
     EXTERNAL_RULE = "EXTERNAL_RULE"
 
 
+# Tipos de evidência que só provam comportamento observado (o código e o que o testa).
+CODE_EVIDENCE_TYPES = frozenset({EvidenceType.SOURCE_CODE, EvidenceType.TEST})
+
+
+class EvidenceMechanism(enum.StrEnum):
+    """POR QUAL MECANISMO o trecho impõe a regra. Em legados onde um módulo mora inteiro
+    numa unit, a convergência de mecanismos distintos no mesmo arquivo é o que corrobora.
+
+    REACHABILITY não é sítio da regra: é prova de que o trecho está VIVO (unit no projeto,
+    rotina chamada, formulário registrado) — alimenta o sinal `reachability`, não a linhagem.
+    """
+
+    VALIDATION = "VALIDATION"  # rejeita/exige entrada (BeforePost, OnExit, if ... raise)
+    CALCULATION = "CALCULATION"  # fórmula, cálculo, arredondamento
+    SQL = "SQL"  # SQL embutido, constraint, trigger, procedure
+    CONSTANT = "CONSTANT"  # constante, parâmetro, enum, tabela de valores
+    MESSAGE = "MESSAGE"  # mensagem ao usuário (erro/aviso) que enuncia a regra
+    UI_STATE = "UI_STATE"  # habilita/desabilita, visibilidade, fluxo de tela
+    TEST = "TEST"  # asserção de teste automatizado
+    REACHABILITY = "REACHABILITY"
+    OTHER = "OTHER"
+
+
 class EvidenceRelation(enum.StrEnum):
     SUPPORTS = "supports"
     CONTRADICTS = "contradicts"
@@ -122,6 +158,8 @@ class RelationType(enum.StrEnum):
     EXEMPLIFIED_BY = "EXEMPLIFIED_BY"
     CONTRADICTS = "CONTRADICTS"
     SUPERSEDES = "SUPERSEDES"
+    # regra parecida em OUTRO escopo/processo (nunca é suporte nem conflito)
+    VARIANT_OF = "VARIANT_OF"
 
 
 class SourceType(enum.StrEnum):

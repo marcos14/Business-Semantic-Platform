@@ -136,8 +136,12 @@ def list_atoms(
     domain: str | None = None,
     capability: str | None = None,
     status_: LifecycleStatus | None = Query(default=None, alias="status"),
+    statuses: str | None = Query(
+        default=None, description="vários status separados por vírgula"
+    ),
     classification: Classification | None = None,
     risk: RiskLevel | None = None,
+    significance: str | None = None,
     origin: Origin | None = None,
     q: str | None = None,
     min_confidence: float | None = Query(default=None, ge=0, le=1),
@@ -154,10 +158,16 @@ def list_atoms(
         stmt = stmt.where(KnowledgeAtom.capability == capability)
     if status_:
         stmt = stmt.where(KnowledgeAtom.status == str(status_))
+    if statuses:
+        lista = [s.strip().upper() for s in statuses.split(",") if s.strip()]
+        if lista:
+            stmt = stmt.where(KnowledgeAtom.status.in_(lista))
     if classification:
         stmt = stmt.where(KnowledgeAtom.classification == str(classification))
     if risk:
         stmt = stmt.where(KnowledgeAtom.risk == str(risk))
+    if significance:
+        stmt = stmt.where(KnowledgeAtom.significance == significance.strip().upper())
     if origin:
         stmt = stmt.where(KnowledgeAtom.origin == str(origin))
     if q:

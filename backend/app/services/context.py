@@ -15,6 +15,7 @@ from app.models.knowledge import KnowledgeAtom
 
 # §63: rótulos de segurança
 CANONICAL = "CANONICAL"
+PROVISIONAL = "PROVISIONAL"  # faixa intermediária: publicado com rótulo, corrigível
 OBSERVED = "OBSERVED"
 UNRESOLVED = "UNRESOLVED"
 UNKNOWN = "UNKNOWN"
@@ -55,7 +56,12 @@ def _item(a: KnowledgeAtom, label: str) -> dict:
 
 
 def build_package(
-    db: Session, *, capability: str, task: str | None = None, include_candidates: bool = False
+    db: Session,
+    *,
+    capability: str,
+    task: str | None = None,
+    include_candidates: bool = False,
+    include_provisional: bool = True,
 ) -> dict:
     cap = db.get(Capability, capability)
     if cap is None:
@@ -74,9 +80,10 @@ def build_package(
         "capability": {"slug": cap.slug, "name": cap.name, "domain": cap.domain_slug},
         "task": task,
         "safety_note": (
-            "Apenas itens rotulados CANONICAL são regra oficial. OBSERVED = candidato "
-            "não aprovado; UNRESOLVED = conflito aberto; UNKNOWN = pergunta sem resposta. "
-            "Nunca trate itens não-canonical como verdade (§63)."
+            "Apenas itens rotulados CANONICAL são regra oficial. PROVISIONAL = publicado "
+            "com boa confiança mas ainda não confirmado (pode ser corrigido); OBSERVED = "
+            "candidato não aprovado; UNRESOLVED = conflito aberto; UNKNOWN = pergunta sem "
+            "resposta. Nunca trate itens não-canonical como verdade (§63)."
         ),
     }
     for section, _kind in _KIND_SECTIONS:
@@ -112,6 +119,9 @@ def build_package(
             continue
         if a.status == str(LifecycleStatus.CANONICAL):
             package[secao].append(_item(a, CANONICAL))
+        elif a.status == str(LifecycleStatus.PROVISIONAL):
+            if include_provisional or include_candidates:
+                package[secao].append(_item(a, PROVISIONAL))
         elif include_candidates and a.status not in (
             str(LifecycleStatus.REJECTED),
             str(LifecycleStatus.SUPERSEDED),
@@ -121,6 +131,9 @@ def build_package(
     package["stats"] = {
         "canonical": sum(
             1 for s, _ in _KIND_SECTIONS for i in package[s] if i["label"] == CANONICAL
+        ),
+        "provisional": sum(
+            1 for s, _ in _KIND_SECTIONS for i in package[s] if i["label"] == PROVISIONAL
         ),
         "observed": sum(
             1 for s, _ in _KIND_SECTIONS for i in package[s] if i["label"] == OBSERVED

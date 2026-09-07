@@ -21,6 +21,8 @@ class ConfidenceScore(Base):
     atom_id: Mapped[str] = mapped_column(ForeignKey("knowledge_atoms.id"), index=True)
     score: Mapped[float] = mapped_column(Float)
     engine_version: Mapped[str] = mapped_column(String(20))
+    # perfil de evidência usado (pesos): o histórico continua explicável ao trocar o perfil
+    profile: Mapped[str | None] = mapped_column(String(40), nullable=True)
     trigger: Mapped[str] = mapped_column(String(60))
     actor: Mapped[str] = mapped_column(String(320))
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
@@ -52,9 +54,12 @@ class Policy(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
-    scope_type: Mapped[str] = mapped_column(String(20))  # global|domain|atom_kind|capability|risk
+    # global|domain|atom_kind|significance|capability|risk
+    scope_type: Mapped[str] = mapped_column(String(20))
     selector: Mapped[str | None] = mapped_column(String(200), nullable=True)
     threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # piso da faixa PROVISIONAL (publicado com rótulo, corrigível por um humano)
+    provisional_floor: Mapped[float | None] = mapped_column(Float, nullable=True)
     human_review_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     min_reviewers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     require_owner_approval: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

@@ -172,6 +172,24 @@ Entregáveis:
 
 ---
 
+## Fase 8 — Faixas de confiança e cascata de evidência (tamanho G) ✅ etapas A/B em 2026-09-07
+
+**Motivação:** no piloto real (ERP de 23 anos, sem documentação canônica, testes recentes e pouco confiáveis) a fila humana é inviável: com o engine v1.1 e limiar 90%, código+teste chega no máximo a 0,78 e quase todo MEDIUM/HIGH caía na Inbox. Análise completa em `docs` (artifact "Cascata de Fontes e Faixas de Confiança").
+
+Entregáveis (etapa A — sem agente novo; etapa B — cascata na mesma fonte; seções 8/9 — perfil de evidência e independência por sítio):
+
+- [x] Status **PROVISIONAL** no lifecycle: confiança acima do piso da política, sem conflito, sem risco CRITICAL, linter limpo → publicado com rótulo (context package `PROVISIONAL`, Explorer, Kanban, export opcional em `provisional/`). Sobe a CANONICAL pelo sistema (nova evidência atinge o limiar) ou por um único humano quando a política dispensa o owner (`require_owner_approval=false`, `min_reviewers`); voto que não confirma abre a discussão humana. Só relevância MEDIUM/HIGH entra na faixa (AC-CONF-02 continua valendo para o não classificado).
+- [x] **Políticas por relevância** (`scope_type=significance`, campo `provisional_floor`), seed idempotente na migração: MEDIUM canônico 70% / provisório 40% / um revisor basta; HIGH 85% / 55% / owner; CRITICAL humano.
+- [x] **Confidence Engine v2** com **perfil de evidência** por domain (`default`, `legacy-hostile`), gravado em cada score: independência por **sítio** (arquivo + rotina envolvente, verificada por regex contra o fonte; sítios no mesmo arquivo com desconto; faixas sobrepostas colapsam), `mechanism_diversity` (validação/cálculo/SQL/constante/mensagem/UI/teste), `database_support`, `reachability`, `source_consistency`, `document_divergence` (no perfil hostil, documento contradizendo código vira question, não conflito). Guarda de intenção: INTENDED/MANDATED só com código/teste tem teto provisório.
+- [x] **Cascata, estágio 1 (mesma fonte)**: `run_evidence_search` corrobora em lotes de 30 por prioridade (relevância, risco, menor confiança), pedindo OUTROS sítios (arquivos já citados vão no prompt) e exigindo mesmo escopo (âncoras: tabelas, forms, datasets). Veredito novo `SIMILAR_DIFFERENT_SCOPE` → candidate irmão ligado por `VARIANT_OF` + question; guarda mecânica rebaixa suporte sem âncora em comum. Evento `EvidenceSearched` por atom/source/commit impede perguntar duas vezes. Job `jobs.evidence_search` disparado ao fim da campanha (queueing lock por batch, espera a campanha assentar), endpoint `POST /discovery/evidence-search`, CLI `evidence-search`. Corroboração usa `HARNESS_CORROBORATION_MODEL=sonnet`.
+- [x] Ganhos rápidos: duplicata (exata ou semântica) **reforça** o atom existente com o sítio novo em vez de descartar a evidência; Inbox lista só o que exige ação (CORROBORATING/PROVISIONAL viram contadores); `POST /discovery/reroute` + CLI `reroute` re-roteiam pendentes sem voto sob as faixas atuais (sem LLM); revisão por filtro em lote (`POST /reviews/inbox/bulk`) e amostra de auditoria (`GET /reviews/inbox/audit-sample`); métricas `pct_provisional`, `resolved_without_human_rate`, `provisional_audit.false_provisional_rate` (irmão do §80).
+- [x] Frontend: página **Provisórios** (filtros + lote + amostra), coluna no Kanban, contadores na Inbox, perfil de evidência por domain no Admin.
+- [ ] **Etapa C** (próximo ciclo): Sources `documentation` e `database_schema` com inventário/conversão, prompts de corroboração por fonte, estágios 2 e 3 da cascata (ordem vinda do perfil: neste ERP, código → banco → docs).
+
+**Critério de saída verificado:** 190/190 testes verdes (`tests/test_cascade.py` cobre sítios/perfis, faixa provisória ponta a ponta, um humano canonicaliza, promoção por evidência, guarda de intenção, lote, re-roteamento, perfil por domain, duplicata→reforço, variante, busca em lotes); migração aplicada em banco limpo com as 3 políticas iniciais.
+
+---
+
 ## Definition of Done do MVP (§124) — verificação final
 
 | # | Critério | Evidência |

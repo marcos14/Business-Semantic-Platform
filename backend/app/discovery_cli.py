@@ -69,7 +69,52 @@ def main(argv: list[str] | None = None) -> int:
     pt.add_argument("--domain", default=None)
     pt.add_argument("--limit", type=int, default=200)
     pt.add_argument("--dry-run", action="store_true", help="só classifica e conta")
+
+    pr = sub.add_parser("reroute", help="re-roteia pendentes sem voto sob as faixas atuais")
+    pr.add_argument("--domain", default=None)
+    pr.add_argument("--limit", type=int, default=500)
+
+    ps = sub.add_parser(
+        "evidence-search", help="cascata de evidência (estágio 1): corrobora por prioridade"
+    )
+    ps.add_argument("--source-id", default=None)
+    ps.add_argument("--source-name", default=None)
+    ps.add_argument("--domain", required=True)
+    ps.add_argument("--capability", default=None)
+    ps.add_argument("--max-batches", type=int, default=None)
+    ps.add_argument("--budget", type=float, default=5.0, help="US$ por lote")
+    ps.add_argument("--actor", default="cli:evidence-search")
     args = parser.parse_args(argv)
+
+    if args.command == "reroute":
+        from app.services.triage import reevaluate_pending
+
+        with SessionLocal() as db:
+            r = reevaluate_pending(db, domain=args.domain, limit=args.limit)
+        print(f"Considerados {r['considered']} · re-roteados {r['rerouted']}: "
+              f"{r['canonical']} canônicos, {r['provisional']} provisórios, "
+              f"{r['awaiting_evidence']} aguardando evidência, {r['still_human']} seguem humanos")
+        if r["rerouted"]:
+            defer_export(trigger="reroute")
+        return 0
+
+    if args.command == "evidence-search":
+        from app.services.discovery import run_evidence_search
+
+        with SessionLocal() as db:
+            source_id = _resolver_source(db, args)
+            r = run_evidence_search(
+                db, source_id=source_id, domain=args.domain, capability=args.capability,
+                actor=args.actor, max_batches=args.max_batches, budget_usd=args.budget,
+            )
+        print(f"Busca de evidência: {r['batches']} lote(s), {r['atoms']} atom(s), "
+              f"US$ {r['cost_usd']:.2f} · {r['status']}")
+        for run in r["runs"]:
+            erro = f" — {run['error']}" if run["error"] else ""
+            print(f"  run {run['run_id']}: {run['status']}{erro}")
+        if r["batches"]:
+            defer_export(trigger="evidence-search")
+        return 0 if r["status"] in ("done", "exhausted") else 1
 
     if args.command == "triage":
         from app.services.triage import triage_pending

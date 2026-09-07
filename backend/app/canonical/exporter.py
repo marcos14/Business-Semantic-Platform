@@ -17,6 +17,9 @@ from app.kernel.ir.envelope import LifecycleStatus
 from app.models.knowledge import AtomRelation, KnowledgeAtom
 
 EXPORTED_STATUSES = (str(LifecycleStatus.CANONICAL), str(LifecycleStatus.SUPERSEDED))
+# Provisórios (opcional, EXPORT_PROVISIONAL=true) vão para uma pasta própria — nunca
+# misturados com o canônico.
+PROVISIONAL_DIR = "provisional"
 
 _GIT_IDENTITY = [
     "-c",
@@ -40,9 +43,14 @@ def export_canonical(db: Session, repo_path: str | Path, *, trigger: str = "manu
     if not (repo / ".git").exists():
         raise RuntimeError(f"canonical-repo não é um repositório git: {repo}")
 
+    from app.config import settings
+
+    statuses = list(EXPORTED_STATUSES)
+    if settings.export_provisional:
+        statuses.append(str(LifecycleStatus.PROVISIONAL))
     atoms = db.scalars(
         select(KnowledgeAtom)
-        .where(KnowledgeAtom.status.in_(EXPORTED_STATUSES))
+        .where(KnowledgeAtom.status.in_(statuses))
         .options(selectinload(KnowledgeAtom.evidence_links))
         .order_by(KnowledgeAtom.id)
     ).all()
@@ -64,7 +72,8 @@ def export_canonical(db: Session, repo_path: str | Path, *, trigger: str = "manu
             {"type": r.type, "to": r.to_atom}
             for r in db.scalars(select(AtomRelation).where(AtomRelation.from_atom == atom.id))
         ]
-        path = atom_path(repo, atom)
+        base = repo / PROVISIONAL_DIR if atom.status == str(LifecycleStatus.PROVISIONAL) else repo
+        path = atom_path(base, atom)
         expected.add(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         content = to_yaml(atom_to_dict(atom, evidence, relations))

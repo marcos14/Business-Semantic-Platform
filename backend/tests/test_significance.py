@@ -64,7 +64,9 @@ def test_medium_e_high_seguem_fluxo_normal():
     for sig in ("MEDIUM", "HIGH", None):
         d = route(score=0.65, policy=_policy(), has_conflict=False, risk="LOW", lint_errors=0,
                   significance=sig, low_significance_threshold=0.60)
-        assert d.outcome == NEEDS_HUMAN_REVIEW, sig
+        # MEDIUM/HIGH acima do piso provisório (0,40) publicam como provisório; sem
+        # relevância classificada, abaixo do limiar continua indo a humano (AC-CONF-02)
+        assert d.outcome == ("PROVISIONAL" if sig else NEEDS_HUMAN_REVIEW), sig
         d = route(score=0.95, policy=_policy(), has_conflict=False, risk="LOW", lint_errors=0,
                   significance=sig, low_significance_threshold=0.60)
         assert d.outcome == AUTO_APPROVED, sig

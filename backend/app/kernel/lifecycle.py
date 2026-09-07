@@ -16,6 +16,7 @@ TRANSITIONS: dict[S, frozenset[S]] = {
     S.READY_FOR_EVALUATION: frozenset(
         {
             S.AUTO_APPROVED,
+            S.PROVISIONAL,
             S.NEEDS_HUMAN_REVIEW,
             S.CONFLICTED,
             S.UNKNOWN,
@@ -26,6 +27,19 @@ TRANSITIONS: dict[S, frozenset[S]] = {
         }
     ),
     S.AUTO_APPROVED: frozenset({S.CANONICAL}),
+    # Faixa provisória: publicada com rótulo. Sobe a CANONICAL pelo sistema (nova evidência
+    # atinge o limiar) ou por confirmação humana permitida pela política; volta ao ciclo de
+    # avaliação quando chega evidência; um voto que não confirma abre a discussão humana.
+    S.PROVISIONAL: frozenset(
+        {
+            S.CANONICAL,
+            S.READY_FOR_EVALUATION,
+            S.IN_REVIEW,
+            S.NEEDS_HUMAN_REVIEW,
+            S.CONFLICTED,
+            S.REJECTED,
+        }
+    ),
     # → CORROBORATING: nova evidência de corroboração reabre o ciclo automático
     #   (apenas quando ainda não há votos — guard no serviço de corroboração)
     S.NEEDS_HUMAN_REVIEW: frozenset({S.IN_REVIEW, S.CONFLICTED, S.CORROBORATING}),
@@ -38,6 +52,8 @@ TRANSITIONS: dict[S, frozenset[S]] = {
             S.UNKNOWN,
             S.LEGACY_BUG,
             S.REJECTED,
+            # política que dispensa owner: confirmações suficientes canonicalizam direto
+            S.CANONICAL,
         }
     ),
     S.DECISION_PENDING: frozenset(
@@ -66,8 +82,8 @@ INITIAL_STATUSES = frozenset({S.DISCOVERED, S.CANDIDATE})
 # Alvos que exigem autoridade de Decision Owner no escopo do atom (§8, AC-GOV-03).
 AUTHORITY_TARGETS = frozenset({S.CANONICAL, S.SUPERSEDED})
 
-# Alvos reservados ao sistema (Confidence/Policy Engine, Fase 2) — nunca via ação humana direta.
-SYSTEM_ONLY_TARGETS = frozenset({S.AUTO_APPROVED})
+# Alvos reservados ao sistema (Confidence/Policy Engine) — nunca via ação humana direta.
+SYSTEM_ONLY_TARGETS = frozenset({S.AUTO_APPROVED, S.PROVISIONAL})
 
 
 def validate_transition(current: S, new: S) -> None:
