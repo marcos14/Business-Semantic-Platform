@@ -69,6 +69,7 @@ def run_discovery_job(
         )
         if run.status == "succeeded":
             defer_export(trigger=f"discovery:{run.id}")
+            defer_freshness(source_id)
         return {
             "run_id": str(run.id), "status": run.status,
             "candidates": run.candidates_created, "cost_usd": run.cost_usd,
@@ -270,6 +271,8 @@ def run_inventory_job(
             batch_id=_uuid.UUID(batch_id) if batch_id else None, budget_usd=budget_usd,
         )
         _reagenda_se_limite(run, run_inventory_job, **kwargs)
+        if run.status == "succeeded":
+            defer_freshness(source_id)
         return {
             "run_id": str(run.id), "status": run.status,
             "files": run.candidates_created, "cost_usd": run.cost_usd,
@@ -316,6 +319,7 @@ def run_directed_job(
         enfileirados = 0
         if run.status == "succeeded":
             defer_export(trigger=f"discovery:{run.id}")
+            defer_freshness(source_id)
             if batch_id and settings.evidence_search_auto:
                 # cascata, estágio 1: quando a campanha assentar, corroborar por prioridade
                 defer_evidence_search(
@@ -458,6 +462,44 @@ def compute_centrality_job(timestamp: int | None = None) -> dict:
         n = compute_centrality(db)
         db.commit()
     return {"atoms": n}
+
+
+@job_app.task(name="jobs.refresh_helpdesk_freshness", queue="discovery")
+def refresh_helpdesk_freshness_job(source_id: str) -> dict:
+    """Roda no host porque os repositórios legados não são montados no container da API."""
+    import uuid as _uuid
+
+    from app.db import SessionLocal
+    from app.models.knowledge import Source
+    from app.services.helpdesk import refresh_source_freshness
+
+    with SessionLocal() as db:
+        source = db.get(Source, _uuid.UUID(source_id))
+        if source is None:
+            return {"source_id": source_id, "status": "not_found"}
+        result = refresh_source_freshness(db, source=source)
+        db.commit()
+        return result
+
+
+def defer_freshness(source_id: str, *, delay_minutes: int = 5) -> bool:
+    """Agrupa vários turnos da mesma Source em uma comparação de freshness."""
+    job = refresh_helpdesk_freshness_job.configure(
+        queueing_lock=f"helpdesk-freshness:{source_id}",
+        schedule_in={"minutes": delay_minutes} if delay_minutes else None,
+    )
+    try:
+        try:
+            job.defer(source_id=source_id)
+        except procrastinate.exceptions.AppNotOpen:
+            with job_app.open():
+                job.defer(source_id=source_id)
+        return True
+    except procrastinate.exceptions.AlreadyEnqueued:
+        return True
+    except Exception:
+        log.warning("defer da atualização de freshness falhou", exc_info=True)
+        return False
 
 
 def defer_export(trigger: str) -> bool:

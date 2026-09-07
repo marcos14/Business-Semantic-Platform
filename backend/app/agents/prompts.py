@@ -52,7 +52,18 @@ regra), UI_STATE (habilita/desabilita/visibilidade), TEST (asserção de teste).
 onde um módulo mora inteiro numa unit, a MESMA regra em rotinas e mecanismos diferentes do \
 mesmo arquivo é corroboração: cite cada sítio como uma evidence separada (uma por rotina), \
 não uma faixa enorme. Mensagens de erro ao usuário são evidência forte: enunciam a regra \
-em linguagem de negócio.
+   em linguagem de negócio.
+10. CONTEXTO OPERACIONAL: quando o código permitir, informe `scope` (produto, versão, cliente, \
+empresa, filial, módulo, tela, operação, papel, entidade/estado, parâmetro) e `effective`. Extraia \
+também process, transition, event, exception, message e procedure quando houver evidência. Para \
+esses kinds, preencha `body` conforme o IR; não invente passos que o trecho não comprova. Use: \
+message={text, code?, severity?, channel?, meaning?, variables?}; \
+procedure={goal, audience?, prerequisites?, steps:[{order, action, expected_result?}], \
+success_criteria?, escalation_conditions?}; transition={from_state,to_state,trigger?,conditions?}; \
+event={payload_fields?}; process={steps}; exception={applies_to,condition}. `procedure.steps` deve \
+ter ao menos um passo comprovado. IDs em applies_to/from_state/to_state devem ser atoms \
+existentes \
+ou relações explícitas; se não houver ID válido, prefira rule/process e registre a lacuna.
 """
 
 # ---------- linguagem ----------
@@ -185,7 +196,10 @@ _CANDIDATE_ITEM = {
     "properties": {
         "kind": {
             "type": "string",
-            "enum": ["rule", "invariant", "concept", "decision", "state", "scenario"],
+            "enum": [
+                "rule", "invariant", "concept", "decision", "state", "scenario",
+                "process", "transition", "event", "exception", "message", "procedure",
+            ],
         },
         "title": {"type": "string", "maxLength": 200},
         "statement": {
@@ -216,6 +230,35 @@ _CANDIDATE_ITEM = {
         "scenario_given": {"type": "string"},
         "scenario_when": {"type": "string"},
         "scenario_then": {"type": "string"},
+        "local_id": {
+            "type": "string",
+            "description": "identificador temporário para relações entre candidates deste run",
+        },
+        "scope": {"type": "object"},
+        "effective": {"type": "object"},
+        "body": {
+            "type": "object",
+            "description": "body específico do kind conforme o Business Semantic IR",
+        },
+        "relations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "DEPENDS_ON", "AFFECTS", "USED_BY", "GOVERNS", "TRIGGERS",
+                            "PRODUCES", "CONSUMES", "EXEMPLIFIED_BY", "CONTRADICTS",
+                            "VARIANT_OF", "INDICATES", "RESOLVED_BY", "APPLIES_TO",
+                        ],
+                    },
+                    "to_atom": {"type": "string"},
+                    "to_local_id": {"type": "string"},
+                },
+            },
+        },
         "evidence": {"type": "array", "minItems": 1, "items": _EVIDENCE_ITEM},
     },
 }
@@ -370,7 +413,8 @@ def code_discovery_prompt(
 ## Sua tarefa: CODE DISCOVERY
 
 Analise o código-fonte deste repositório e extraia o CONHECIMENTO DE NEGÓCIO implícito:
-regras, invariantes, conceitos, decisões, estados e cenários que o código impõe.
+regras, invariantes, conceitos, decisões, estados, transições, processos, eventos, exceções,
+mensagens, procedimentos e cenários que o código impõe.
 
 Escopo prioritário desta varredura: {scope_hint}
 {languages}

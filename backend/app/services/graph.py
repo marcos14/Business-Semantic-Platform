@@ -26,21 +26,30 @@ _IMPACT_DIRECTION: dict[str, str] = {
 }
 
 
-def _domain_relations(db: Session, domain: str) -> list[AtomRelation]:
+def _domain_relations(
+    db: Session, domain: str, allowed_ids: set[str] | None = None
+) -> list[AtomRelation]:
     ids = select(KnowledgeAtom.id).where(KnowledgeAtom.domain == domain)
-    return list(
-        db.scalars(
-            select(AtomRelation).where(
-                or_(AtomRelation.from_atom.in_(ids), AtomRelation.to_atom.in_(ids))
-            )
-        )
+    stmt = select(AtomRelation).where(
+        or_(AtomRelation.from_atom.in_(ids), AtomRelation.to_atom.in_(ids))
     )
+    if allowed_ids is not None:
+        stmt = stmt.where(
+            AtomRelation.from_atom.in_(allowed_ids), AtomRelation.to_atom.in_(allowed_ids)
+        )
+    return list(db.scalars(stmt))
 
 
-def neighborhood(db: Session, atom_id: str, depth: int = 2, max_nodes: int = 200) -> dict:
+def neighborhood(
+    db: Session,
+    atom_id: str,
+    depth: int = 2,
+    max_nodes: int = 200,
+    allowed_ids: set[str] | None = None,
+) -> dict:
     """Vizinhança do atom (§54) até `depth` saltos, em qualquer direção."""
     centro = ksvc.get_atom(db, atom_id)
-    rels = _domain_relations(db, centro.domain)
+    rels = _domain_relations(db, centro.domain, allowed_ids)
     adj: dict[str, list[tuple[str, str, str]]] = {}
     for r in rels:
         adj.setdefault(r.from_atom, []).append((r.to_atom, r.type, "out"))
@@ -82,11 +91,16 @@ def neighborhood(db: Session, atom_id: str, depth: int = 2, max_nodes: int = 200
     }
 
 
-def impact(db: Session, atom_id: str, max_depth: int = 6) -> dict:
+def impact(
+    db: Session,
+    atom_id: str,
+    max_depth: int = 6,
+    allowed_ids: set[str] | None = None,
+) -> dict:
     """§55: 'What is affected if this changes?' — direto + transitivo, agrupado por kind."""
     origem = ksvc.get_atom(db, atom_id)
     afeta: dict[str, set[str]] = {}
-    for r in _domain_relations(db, origem.domain):
+    for r in _domain_relations(db, origem.domain, allowed_ids):
         direcao = _IMPACT_DIRECTION.get(r.type)
         if direcao == "forward":
             afeta.setdefault(r.from_atom, set()).add(r.to_atom)

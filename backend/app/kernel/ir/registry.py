@@ -24,6 +24,8 @@ _REGISTRY: dict[str, type[BaseModel]] = {
     AtomKind.CONFLICT: kinds.ConflictBody,
     AtomKind.QUESTION: kinds.QuestionBody,
     AtomKind.CAPABILITY: kinds.CapabilityBody,
+    AtomKind.MESSAGE: kinds.MessageBody,
+    AtomKind.PROCEDURE: kinds.ProcedureBody,
 }
 
 

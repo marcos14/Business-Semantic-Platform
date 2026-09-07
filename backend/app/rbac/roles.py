@@ -1,3 +1,5 @@
+from sqlalchemy import and_, false, or_, true
+
 from app.models.auth import Role
 
 # Hierarquia de papéis (PRD §7): Domain Expert faz tudo de Reviewer; Decision Owner
@@ -29,3 +31,18 @@ def has_role(user, role: Role, domain: str | None = None, capability: str | None
             if b.capability_slug is None or b.capability_slug == capability:
                 return True
     return False
+
+
+def scope_clause(user, role: Role, domain_column, capability_column):
+    """Cláusula SQL equivalente a ``has_role`` para endpoints de listagem/graph."""
+    clauses = []
+    for binding in user.bindings:
+        if role not in ROLE_IMPLIES[binding.role]:
+            continue
+        if binding.domain_slug is None:
+            return true()
+        clause = domain_column == binding.domain_slug
+        if binding.capability_slug is not None:
+            clause = and_(clause, capability_column == binding.capability_slug)
+        clauses.append(clause)
+    return or_(*clauses) if clauses else false()

@@ -1,8 +1,8 @@
 # PRD — Assistência Semântica para Help Desk
 ## Contexto seguro e orientado por pergunta para agentes de atendimento e analistas N1, N2 e N3
 
-**Status:** Draft para implementação  
-**Versão:** 1.0  
+**Status:** Vertical slice implementado; automação de rollout/freshness ainda incremental
+**Versão:** 1.1
 **Produto base:** Business Semantic Platform (BSP)  
 **Objetivo:** Transformar o conhecimento semântico reconstruído pelo BSP em contexto operacional, rastreável e mensurável para agentes de Help Desk que atendem usuários finais e apoiam analistas.
 
@@ -1539,13 +1539,13 @@ A interface deverá permitir:
 
 Entregáveis:
 
-- [ ] schemas de request/response do Help Desk Context Package;
-- [ ] enums de consumer profile, answerability, recommended action e freshness;
-- [ ] política configurável de consumo;
-- [ ] `include_provisional=false` explícito no `/context` geral;
-- [ ] inclusão de significance, effective, relations e capability description no contexto JSON;
-- [ ] renderização completa dos bodies no Markdown;
-- [ ] testes de compatibilidade.
+- [x] schemas de request/response do Help Desk Context Package;
+- [x] enums de consumer profile, answerability, recommended action e freshness;
+- [x] política configurável de consumo;
+- [x] `include_provisional=false` explícito no `/context` geral;
+- [x] inclusão de significance, effective, relations e capability description no contexto JSON;
+- [x] renderização completa dos bodies no Markdown;
+- [x] testes de compatibilidade.
 
 Critério de saída:
 
@@ -1556,16 +1556,16 @@ Critério de saída:
 
 Entregáveis:
 
-- [ ] `POST /helpdesk/context`;
-- [ ] resolução de domain/capability;
-- [ ] busca exata de mensagens/códigos;
-- [ ] full-text ampliado;
-- [ ] busca vetorial de consumo;
-- [ ] ranking explicável;
-- [ ] filtros por status, scope, effective e RBAC;
-- [ ] orçamento de tokens;
-- [ ] answerability e recommended action;
-- [ ] audit de retrieval.
+- [x] `POST /helpdesk/context`;
+- [x] resolução de domain/capability;
+- [x] busca exata de mensagens/códigos;
+- [x] full-text ampliado;
+- [x] busca vetorial de consumo;
+- [x] ranking explicável;
+- [x] filtros por status, scope, effective e RBAC;
+- [x] orçamento de tokens;
+- [x] answerability e recommended action;
+- [x] audit de retrieval.
 
 Critério de saída:
 
@@ -1576,14 +1576,14 @@ Critério de saída:
 
 Entregáveis:
 
-- [ ] discovery de process, transition, event e exception;
-- [ ] kinds message e procedure;
-- [ ] extração de scope/effective;
-- [ ] linking automático;
-- [ ] embeddings para todos os kinds consumíveis;
-- [ ] projeção de procedimentos;
-- [ ] cobertura de mensagens e validações;
-- [ ] export/compile atualizado.
+- [x] discovery de process, transition, event e exception;
+- [x] kinds message e procedure;
+- [x] extração de scope/effective;
+- [x] linking automático;
+- [x] embeddings para todos os kinds consumíveis;
+- [x] projeção de procedimentos;
+- [x] cobertura de mensagens e validações;
+- [x] export/compile atualizado.
 
 Critério de saída:
 
@@ -1594,12 +1594,12 @@ Critério de saída:
 
 Entregáveis:
 
-- [ ] observação de novo commit da Source;
-- [ ] diff por arquivo/símbolo/faixa;
-- [ ] estado de freshness por evidence/atom;
+- [x] observação de novo commit da Source após inventory/discovery;
+- [x] diff por arquivo/símbolo/faixa;
+- [x] estado de freshness por evidence/atom;
 - [ ] reavaliação e rediscovery direcionados;
-- [ ] freshness no ranking e pacote;
-- [ ] dashboard de stale knowledge.
+- [x] freshness no ranking e pacote;
+- [x] dashboard de stale knowledge.
 
 Critério de saída:
 
@@ -1610,14 +1610,14 @@ Critério de saída:
 
 Entregáveis:
 
-- [ ] helpdesk interactions;
-- [ ] endpoint de feedback idempotente;
-- [ ] operational utility score;
-- [ ] correção → candidate/evidence;
-- [ ] dashboard de outcomes e gaps;
-- [ ] replay offline;
+- [x] helpdesk interactions;
+- [x] endpoint de feedback idempotente;
+- [x] operational utility score;
+- [x] correção → candidate/evidence;
+- [x] dashboard de outcomes e gaps;
+- [x] replay offline por dataset no endpoint de avaliação;
 - [ ] shadow mode;
-- [ ] relatórios por capability, perfil e versão.
+- [x] relatórios por capability, perfil e versão de retrieval.
 
 Critério de saída:
 
@@ -1628,7 +1628,8 @@ Critério de saída:
 
 Entregáveis:
 
-- [ ] configuração por capability/intents;
+- [x] configuração por capability;
+- [ ] configuração por intents;
 - [ ] canary de resposta direta;
 - [ ] limites automáticos por qualidade;
 - [ ] rollback de política;

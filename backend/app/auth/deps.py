@@ -10,15 +10,15 @@ from app.models.auth import User
 _bearer = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
+def get_optional_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
-) -> User:
+) -> User | None:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Não autenticado"
     )
     if creds is None:
-        raise unauthorized
+        return None
     try:
         user_id = decode_access_token(creds.credentials)
     except (pyjwt.PyJWTError, ValueError, KeyError):
@@ -26,4 +26,10 @@ def get_current_user(
     user = db.get(User, user_id, options=[selectinload(User.bindings)])
     if user is None or not user.active:
         raise unauthorized
+    return user
+
+
+def get_current_user(user: User | None = Depends(get_optional_user)) -> User:
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Não autenticado")
     return user

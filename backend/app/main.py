@@ -16,6 +16,7 @@ from app.consume.router import (
 )
 from app.discovery.router import router as discovery_router
 from app.health import router as health_router
+from app.helpdesk.router import router as helpdesk_router
 from app.jobs import job_app
 from app.kernel.errors import KernelError
 from app.knowledge.router import router as knowledge_router
@@ -70,3 +71,4 @@ app.include_router(context_router)
 app.include_router(projections_router)
 app.include_router(graph_router)
 app.include_router(metrics_router)
+app.include_router(helpdesk_router)

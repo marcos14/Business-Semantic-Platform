@@ -64,6 +64,7 @@ def export_canonical(db: Session, repo_path: str | Path, *, trigger: str = "manu
                 "relation": link.relation,
                 "summary": link.evidence.summary,
                 "location": link.evidence.location,
+                "mechanism": (link.evidence.meta or {}).get("mechanism"),
                 "source_id": str(link.evidence.source_id) if link.evidence.source_id else None,
             }
             for link in atom.evidence_links

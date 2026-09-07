@@ -20,6 +20,10 @@ class AtomKind(enum.StrEnum):
     CONFLICT = "conflict"
     QUESTION = "question"
     CAPABILITY = "capability"
+    # Projeções operacionais de Help Desk. MESSAGE preserva o texto/código exibido ao
+    # usuário; PROCEDURE descreve uma sequência acionável sem confundi-la com uma regra.
+    MESSAGE = "message"
+    PROCEDURE = "procedure"
 
 
 class LifecycleStatus(enum.StrEnum):
@@ -160,6 +164,10 @@ class RelationType(enum.StrEnum):
     SUPERSEDES = "SUPERSEDES"
     # regra parecida em OUTRO escopo/processo (nunca é suporte nem conflito)
     VARIANT_OF = "VARIANT_OF"
+    # Relações operacionais para diagnóstico e resolução de atendimentos.
+    INDICATES = "INDICATES"
+    RESOLVED_BY = "RESOLVED_BY"
+    APPLIES_TO = "APPLIES_TO"
 
 
 class SourceType(enum.StrEnum):

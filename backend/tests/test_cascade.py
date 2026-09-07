@@ -252,7 +252,11 @@ def test_dois_arquivos_medium_viram_provisorio_e_um_humano_canonicaliza(client, 
         headers=ctx["rev"],
     ).json()
     assert atom_id in [a["id"] for a in lista["items"]]
-    pkg = client.get("/context", params={"capability": CAP}, headers=ctx["rev"]).json()
+    pkg = client.get(
+        "/context",
+        params={"capability": CAP, "include_provisional": True},
+        headers=ctx["rev"],
+    ).json()
     labels = {i["id"]: i["label"] for i in pkg["rules"]}
     assert labels[atom_id] == "PROVISIONAL" and pkg["stats"]["provisional"] >= 1
     amostra = client.get(

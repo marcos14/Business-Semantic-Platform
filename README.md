@@ -25,7 +25,7 @@ cp .env.example .env    # e preencha OPENROUTER_API_KEY
 docker compose up -d    # db + api + worker + web
 ```
 
-- Web: http://localhost:3000
+- Web (Docker Compose): http://localhost:3001
 - API: http://localhost:8000 (docs em /docs)
 
 Primeiro administrador:
@@ -59,6 +59,44 @@ cd backend
 uv run ruff check .
 uv run pytest
 ```
+
+## Assistência para Help Desk
+
+A tela **Help Desk** (`/helpdesk`) monta um pacote de conhecimento orientado pela pergunta para
+resposta direta ou apoio a N1, N2 e N3. O endpoint principal é `POST /helpdesk/context`; ele combina
+match exato de mensagens/códigos, full-text, embeddings e relações, e então aplica RBAC, escopo,
+vigência, lifecycle, confiança, freshness e política do perfil antes de devolver qualquer atom.
+O retorno traz `answerability`, ação recomendada, perguntas de esclarecimento, proveniência,
+rótulos de incerteza e orçamento. No perfil Direct, excerpt e localização de código são removidos
+estruturalmente.
+Copilot N2/N3, que inclui caminhos, commits ou excerpts, exige papel `reviewer` no escopo;
+Direct e N1 funcionam com `viewer` e recebem somente informação funcional.
+
+```json
+{
+  "question": "Por que não consigo cancelar esta nota?",
+  "consumer_profile": "helpdesk_direct",
+  "domain": "finance",
+  "capability": "invoice-cancellation",
+  "context": {
+    "version": "12.4",
+    "document_state": "autorizada",
+    "error_messages": ["CAN-014"]
+  }
+}
+```
+
+Cada consulta pode gerar uma interação auditável. O resultado do atendimento é registrado em
+`POST /helpdesk/interactions/{id}/feedback`; uma correção feita por usuário com papel de reviewer
+vira candidate com evidence de revisão humana, nunca conhecimento canônico automático. Métricas,
+lacunas e freshness ficam em `/helpdesk/metrics`, `/helpdesk/gaps` e `/helpdesk/freshness`, sempre
+filtradas pelos role bindings do solicitante.
+
+Integrações podem usar JWT ou `X-BSP-API-Key`. Um administrador cria a identidade em
+`POST /helpdesk/clients`, vinculando-a a um usuário RBAC, aos consumer profiles permitidos, à
+expiração e ao rate limit. A chave é retornada somente na criação/rotação; use
+`POST /helpdesk/clients/{id}/rotate` para rotacionar e `DELETE /helpdesk/clients/{id}` para revogar.
+Perguntas são redigidas e identificadores do contexto são pseudonimizados antes da persistência.
 
 ## Discovery (harness Claude Code)
 

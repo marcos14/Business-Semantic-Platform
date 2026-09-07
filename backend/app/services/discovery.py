@@ -58,7 +58,18 @@ EVIDENCE_TARGET_STATUSES = {
     str(LifecycleStatus.IN_REVIEW),
     str(LifecycleStatus.PROVISIONAL),
 }
-CORROBORATION_KINDS = ["rule", "invariant", "scenario", "decision"]
+CORROBORATION_KINDS = [
+    "rule",
+    "invariant",
+    "scenario",
+    "decision",
+    "process",
+    "transition",
+    "event",
+    "exception",
+    "message",
+    "procedure",
+]
 _SIGNIFICANCE_RANK = {"HIGH": 0, "MEDIUM": 1, None: 2, "LOW": 3, "SYSTEMIC": 4}
 _RISK_RANK = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, None: 3, "LOW": 4}
 
@@ -160,6 +171,8 @@ def _map_body(c: dict) -> tuple[AtomKind, dict, str | None]:
     """Mapeia o candidate do agente para (kind, body, description) do registry."""
     kind = AtomKind(c["kind"])
     statement = c["statement"]
+    if c.get("body"):
+        return kind, c["body"], c.get("description") or statement
     if kind in (AtomKind.RULE, AtomKind.INVARIANT):
         return kind, {"statement": statement}, c.get("description")
     if kind == AtomKind.DECISION:
@@ -187,7 +200,7 @@ def _existing_statements(db: Session, domain: str, capability: str | None) -> li
         stmt = stmt.where(KnowledgeAtom.capability == capability)
     pares = []
     for a in db.scalars(stmt):
-        texto = (a.body or {}).get("statement") or a.title
+        texto = embsvc.atom_text(a)
         pares.append((a.id, _normalize(texto)))
     return pares
 
@@ -395,6 +408,8 @@ def _ingest(
     por_hash: dict[str, str] = {_statement_hash(t): aid for aid, t in existentes}
 
     candidatos = list(payload.get("candidates", []))
+    created_by_index: dict[int, str] = {}
+    created_by_local_id: dict[str, str] = {}
     # Um único lote de embeddings para todos os candidates do run (dedup semântica +
     # armazenamento). None = embeddings desligados → dedup textual de sempre.
     textos = [f"{c.get('title', '')}. {c.get('statement', '')}".strip() for c in candidatos]
@@ -436,6 +451,9 @@ def _ingest(
             # o atom existente (corroboração que a campanha já pagou).
             run.duplicates_skipped += 1
             alvo = db.get(KnowledgeAtom, por_hash[h])
+            created_by_index[i] = por_hash[h]
+            if c.get("local_id"):
+                created_by_local_id[str(c["local_id"])] = por_hash[h]
             if alvo is not None and alvo.kind in embsvc.BUSINESS_KINDS:
                 _reinforce(db, run, alvo, evidencias, actor=actor, reason="duplicata exata")
             continue
@@ -454,6 +472,9 @@ def _ingest(
                         db, run, cand, evidencias, actor=actor,
                         reason=f"duplicata semântica ({sim:.2f})",
                     )
+                    created_by_index[i] = cand.id
+                    if c.get("local_id"):
+                        created_by_local_id[str(c["local_id"])] = cand.id
                     continue
                 if sim >= settings.dedup_flag_similarity:
                     similar, similaridade = cand.id, round(sim, 4)
@@ -479,6 +500,8 @@ def _ingest(
                 description=description,
                 classification=Classification(c["classification"]),
                 risk=RiskLevel(c["risk"]) if c.get("risk") else None,
+                scope=c.get("scope"),
+                effective=c.get("effective"),
                 body=body,
                 evidence=evidencias,
                 significance=significance,
@@ -487,6 +510,9 @@ def _ingest(
             run.candidates_rejected += 1
             continue
         db.flush()
+        created_by_index[i] = atom.id
+        if c.get("local_id"):
+            created_by_local_id[str(c["local_id"])] = atom.id
         run.candidates_created += 1
         if significance == Significance.SYSTEMIC:
             run.systemic_created += 1
@@ -510,6 +536,33 @@ def _ingest(
             )
 
         evaluation.evaluate_atom(db, atom.id, trigger=f"discovery:{run.id}")
+
+    # Linking explícito do agente. IDs só são aceitos quando existem; referências locais
+    # resolvem candidates efetivamente criados ou deduplicados neste mesmo run.
+    for i, candidate in enumerate(candidatos):
+        from_atom = created_by_index.get(i)
+        if not from_atom:
+            continue
+        relation_added = False
+        for raw_relation in candidate.get("relations", []) or []:
+            to_atom = raw_relation.get("to_atom") or created_by_local_id.get(
+                str(raw_relation.get("to_local_id") or "")
+            )
+            if not to_atom or db.get(KnowledgeAtom, to_atom) is None:
+                continue
+            try:
+                ksvc.add_relation(
+                    db,
+                    actor=actor,
+                    from_atom=from_atom,
+                    to_atom=to_atom,
+                    relation_type=RelationType(raw_relation["type"]),
+                )
+                relation_added = True
+            except (KernelError, KeyError, ValueError):
+                continue
+        if relation_added:
+            evaluation.evaluate_atom(db, from_atom, trigger=f"discovery-linking:{run.id}")
 
     # Reforços (discovery dirigido): o agente reconheceu conhecimento já registrado e cita
     # este arquivo como evidência adicional — sítio novo, em vez de duplicata.

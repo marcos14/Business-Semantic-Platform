@@ -25,6 +25,8 @@ BUSINESS_KINDS = [
     str(k) for k in (
         AtomKind.RULE, AtomKind.INVARIANT, AtomKind.DECISION,
         AtomKind.STATE, AtomKind.SCENARIO, AtomKind.CONCEPT,
+        AtomKind.PROCESS, AtomKind.TRANSITION, AtomKind.EVENT, AtomKind.EXCEPTION,
+        AtomKind.MESSAGE, AtomKind.PROCEDURE,
     )
 ]
 EXCLUDED_STATUS = [str(LifecycleStatus.REJECTED), str(LifecycleStatus.SUPERSEDED)]
@@ -41,6 +43,17 @@ def atom_text(atom: KnowledgeAtom) -> str:
         w = (body.get("when") or {}).get("description", "")
         t = (body.get("then") or {}).get("description", "")
         statement = f"Dado {g}, quando {w}, então {t}"
+    if not statement and atom.kind in {
+        str(AtomKind.PROCESS),
+        str(AtomKind.TRANSITION),
+        str(AtomKind.EVENT),
+        str(AtomKind.EXCEPTION),
+        str(AtomKind.MESSAGE),
+        str(AtomKind.PROCEDURE),
+    }:
+        import json
+
+        statement = json.dumps(body, ensure_ascii=False, sort_keys=True)
     base = statement or atom.description or ""
     return f"{atom.title}. {base}".strip()
 

@@ -186,6 +186,9 @@ function Nav() {
       <Link href="/explorer" style={link}>
         Explorer
       </Link>
+      <Link href="/helpdesk" style={link}>
+        Help Desk
+      </Link>
       <Link href="/conflicts" style={link}>
         Conflitos
       </Link>

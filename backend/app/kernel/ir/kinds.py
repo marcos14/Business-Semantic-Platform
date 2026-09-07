@@ -109,3 +109,31 @@ class CapabilityBody(_Body):
     """Capability como atom navegável (§52); metadados livres."""
 
     tags: list[str] = Field(default_factory=list)
+
+
+class MessageBody(_Body):
+    """Mensagem funcional visível em UI/API/relatório e seu significado operacional."""
+
+    text: str = Field(min_length=1)
+    code: str | None = None
+    severity: str | None = None
+    channel: str | None = None
+    meaning: str | None = None
+    variables: list[str] = Field(default_factory=list)
+
+
+class ProcedureStep(_Body):
+    order: int = Field(ge=1)
+    action: str = Field(min_length=1)
+    expected_result: str | None = None
+
+
+class ProcedureBody(_Body):
+    """Orientação operacional verificável para atingir um objetivo ou resolver um sintoma."""
+
+    goal: str = Field(min_length=1)
+    audience: list[str] = Field(default_factory=list)
+    prerequisites: list[str] = Field(default_factory=list)
+    steps: list[ProcedureStep] = Field(min_length=1)
+    success_criteria: list[str] = Field(default_factory=list)
+    escalation_conditions: list[str] = Field(default_factory=list)

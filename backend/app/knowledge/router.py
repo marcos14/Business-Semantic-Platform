@@ -26,6 +26,7 @@ from app.kernel.linter import lint_db
 from app.models.auth import Role, User
 from app.models.knowledge import KnowledgeAtom
 from app.rbac.deps import ensure_scope_role
+from app.rbac.roles import has_role, scope_clause
 from app.services import evaluation
 from app.services import knowledge as svc
 
@@ -131,7 +132,7 @@ def _atom_out(atom: KnowledgeAtom) -> dict:
 @router.get("")
 def list_atoms(
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     kind: AtomKind | None = None,
     domain: str | None = None,
     capability: str | None = None,
@@ -149,7 +150,9 @@ def list_atoms(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    stmt = select(KnowledgeAtom)
+    stmt = select(KnowledgeAtom).where(
+        scope_clause(user, Role.VIEWER, KnowledgeAtom.domain, KnowledgeAtom.capability)
+    )
     if kind:
         stmt = stmt.where(KnowledgeAtom.kind == str(kind))
     if domain:
@@ -214,9 +217,16 @@ def create_candidate(
 
 @router.get("/lint")
 def run_linter(
-    db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    findings = lint_db(db)
+    authorized_ids = set(
+        db.scalars(
+            select(KnowledgeAtom.id).where(
+                scope_clause(user, Role.VIEWER, KnowledgeAtom.domain, KnowledgeAtom.capability)
+            )
+        )
+    )
+    findings = [finding for finding in lint_db(db) if finding.atom_id in authorized_ids]
     return {
         "errors": sum(1 for f in findings if f.severity == "error"),
         "warnings": sum(1 for f in findings if f.severity == "warning"),
@@ -226,9 +236,11 @@ def run_linter(
 
 @router.get("/{atom_id}")
 def get_atom(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    return _atom_out(svc.get_atom(db, atom_id))
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
+    return _atom_out(atom)
 
 
 @router.patch("/{atom_id}")
@@ -299,7 +311,7 @@ def add_evidence(
 
 @router.get("/{atom_id}/evidence")
 def list_evidence(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> list[dict]:
     atom = db.get(
         KnowledgeAtom,
@@ -308,23 +320,31 @@ def list_evidence(
     )
     if atom is None:
         raise NotFoundError(f"Atom não encontrado: {atom_id}")
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
+    technical = has_role(user, Role.REVIEWER, atom.domain, atom.capability)
     out = []
     for link in atom.evidence_links:
         ev = link.evidence
-        out.append(
-            {
-                "id": str(ev.id),
-                "type": ev.type,
-                "relation": link.relation,
-                "summary": ev.summary,
-                "excerpt": ev.excerpt,
-                "location": ev.location,
-                "source_id": str(ev.source_id) if ev.source_id else None,
-                "origin": ev.origin,
-                "created_by": ev.created_by,
-                "created_at": ev.created_at.isoformat(),
-            }
-        )
+        item = {
+            "id": str(ev.id),
+            "type": ev.type,
+            "relation": link.relation,
+            "summary": ev.summary,
+            "origin": ev.origin,
+            "created_at": ev.created_at.isoformat(),
+        }
+        if technical:
+            item.update(
+                {
+                    "excerpt": ev.excerpt,
+                    "location": ev.location,
+                    "source_id": str(ev.source_id) if ev.source_id else None,
+                    "metadata": ev.meta,
+                    "mechanism": (ev.meta or {}).get("mechanism"),
+                    "created_by": ev.created_by,
+                }
+            )
+        out.append(item)
     return out
 
 
@@ -337,6 +357,8 @@ def add_relation(
 ) -> dict:
     atom = svc.get_atom(db, atom_id)
     ensure_scope_role(user, Role.REVIEWER, atom.domain, atom.capability)
+    target = svc.get_atom(db, body.to_atom)
+    ensure_scope_role(user, Role.REVIEWER, target.domain, target.capability)
     rel = svc.add_relation(
         db, actor=user.email, from_atom=atom_id, to_atom=body.to_atom, relation_type=body.type
     )
@@ -372,18 +394,29 @@ def translate_evidence_endpoint(
 
 @router.get("/{atom_id}/impact")
 def impact_analysis(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     """§55: What is affected if this changes?"""
     from app.services import graph as gsvc
 
-    return gsvc.impact(db, atom_id)
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
+    allowed_ids = set(
+        db.scalars(
+            select(KnowledgeAtom.id).where(
+                scope_clause(user, Role.VIEWER, KnowledgeAtom.domain, KnowledgeAtom.capability)
+            )
+        )
+    )
+    return gsvc.impact(db, atom_id, allowed_ids=allowed_ids)
 
 
 @router.get("/{atom_id}/history")
 def history(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
     return svc.atom_history(db, atom_id)
 
 
@@ -404,8 +437,10 @@ def evaluate(
 
 @router.get("/{atom_id}/confidence")
 def confidence(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    atom = svc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
     latest = evaluation.latest_confidence(db, atom_id)
     if latest is None:
         raise NotFoundError(f"Atom {atom_id} ainda não foi avaliado")

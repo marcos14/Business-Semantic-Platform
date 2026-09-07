@@ -17,8 +17,10 @@ from app.kernel.ir.envelope import (
     Origin,
     RiskLevel,
 )
-from app.models.auth import Capability, Domain, User
+from app.models.auth import Capability, Domain, Role, User
 from app.models.knowledge import KnowledgeAtom
+from app.rbac.deps import ensure_scope_role
+from app.rbac.roles import ROLE_IMPLIES, scope_clause
 from app.services import context as ctx
 from app.services import graph as gsvc
 from app.services import knowledge as ksvc
@@ -62,11 +64,14 @@ def search(
     min_confidence: float | None = Query(default=None, ge=0, le=1),
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """§53: full-text (tsvector) + fallback fuzzy (trigram) com todos os filtros."""
 
     def _filtrar(stmt):
+        stmt = stmt.where(
+            scope_clause(user, Role.VIEWER, KnowledgeAtom.domain, KnowledgeAtom.capability)
+        )
         if domain:
             stmt = stmt.where(KnowledgeAtom.domain == domain)
         if capability:
@@ -113,7 +118,7 @@ def search(
 
 @explorer_router.get("")
 def explorer_tree(
-    db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> list[dict]:
     """§52: Domain → Capability com contagens por kind e canonical."""
     contagens = db.execute(
@@ -123,13 +128,27 @@ def explorer_tree(
             KnowledgeAtom.kind,
             KnowledgeAtom.status,
             func.count(),
-        ).group_by(
+        )
+        .where(scope_clause(user, Role.VIEWER, KnowledgeAtom.domain, KnowledgeAtom.capability))
+        .group_by(
             KnowledgeAtom.domain, KnowledgeAtom.capability, KnowledgeAtom.kind, KnowledgeAtom.status
         )
     ).all()
     caps = {c.slug: c for c in db.scalars(select(Capability))}
     arvore: dict[str, dict] = {}
-    for d in db.scalars(select(Domain).order_by(Domain.slug)):
+    global_view = any(
+        binding.domain_slug is None and Role.VIEWER in ROLE_IMPLIES[binding.role]
+        for binding in user.bindings
+    )
+    allowed_domains = None if global_view else {
+        binding.domain_slug
+        for binding in user.bindings
+        if binding.domain_slug and Role.VIEWER in ROLE_IMPLIES[binding.role]
+    }
+    domain_stmt = select(Domain).order_by(Domain.slug)
+    if allowed_domains is not None:
+        domain_stmt = domain_stmt.where(Domain.slug.in_(allowed_domains))
+    for d in db.scalars(domain_stmt):
         arvore[d.slug] = {"slug": d.slug, "name": d.name, "capabilities": {}}
     for dom, cap, kind, status, n in contagens:
         no_dom = arvore.setdefault(dom, {"slug": dom, "name": dom, "capabilities": {}})
@@ -159,8 +178,9 @@ def explorer_capability(
     domain: str,
     capability: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> dict:
+    ensure_scope_role(user, Role.VIEWER, domain, capability)
     atoms = db.scalars(
         select(KnowledgeAtom)
         .where(KnowledgeAtom.domain == domain, KnowledgeAtom.capability == capability)
@@ -187,13 +207,21 @@ def context_package(
     capability: str,
     task: str | None = None,
     include_candidates: bool = False,
+    include_provisional: bool = False,
     format: str = Query(default="json", pattern="^(json|markdown)$"),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """§61-§63 (AC-CTX-01..03): por padrão só canonical; candidates só explícitos."""
+    cap = db.get(Capability, capability)
+    if cap is not None:
+        ensure_scope_role(user, Role.VIEWER, cap.domain_slug, capability)
     package = ctx.build_package(
-        db, capability=capability, task=task, include_candidates=include_candidates
+        db,
+        capability=capability,
+        task=task,
+        include_candidates=include_candidates,
+        include_provisional=include_provisional,
     )
     if format == "markdown":
         return PlainTextResponse(ctx.to_markdown(package), media_type="text/markdown")
@@ -205,36 +233,49 @@ def bdd_feature(
     capability: str,
     canonical_only: bool = True,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> str:
+    cap = db.get(Capability, capability)
+    if cap is not None:
+        ensure_scope_role(user, Role.VIEWER, cap.domain_slug, capability)
     return proj.feature_for_capability(db, capability, canonical_only=canonical_only)
 
 
 @projections_router.get("/bdd/{atom_id}", response_class=PlainTextResponse)
 def bdd_scenario(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> str:
-    return proj.gherkin_for_scenario(ksvc.get_atom(db, atom_id))
+    atom = ksvc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
+    return proj.gherkin_for_scenario(atom)
 
 
 @projections_router.get("/decision-table/{atom_id}")
 def decision_table(
-    atom_id: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    atom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    return proj.decision_table(ksvc.get_atom(db, atom_id))
+    atom = ksvc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
+    return proj.decision_table(atom)
 
 
 @projections_router.get("/state-machine")
 def state_machine(
-    capability: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    capability: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
+    cap = db.get(Capability, capability)
+    if cap is not None:
+        ensure_scope_role(user, Role.VIEWER, cap.domain_slug, capability)
     return proj.state_machine(db, capability)
 
 
 @projections_router.get("/markdown", response_class=PlainTextResponse)
 def markdown_doc(
-    capability: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+    capability: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> str:
+    cap = db.get(Capability, capability)
+    if cap is not None:
+        ensure_scope_role(user, Role.VIEWER, cap.domain_slug, capability)
     return proj.markdown_doc(db, capability)
 
 
@@ -243,6 +284,15 @@ def graph_neighborhood(
     atom_id: str,
     depth: int = Query(default=2, ge=1, le=4),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    return gsvc.neighborhood(db, atom_id, depth=depth)
+    atom = ksvc.get_atom(db, atom_id)
+    ensure_scope_role(user, Role.VIEWER, atom.domain, atom.capability)
+    allowed_ids = set(
+        db.scalars(
+            select(KnowledgeAtom.id).where(
+                scope_clause(user, Role.VIEWER, KnowledgeAtom.domain, KnowledgeAtom.capability)
+            )
+        )
+    )
+    return gsvc.neighborhood(db, atom_id, depth=depth, allowed_ids=allowed_ids)
