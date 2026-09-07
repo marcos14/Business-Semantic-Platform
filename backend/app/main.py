@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.admin.router import router as admin_router
+from app.assistant.router import router as assistant_router
 from app.auth.router import router as auth_router
 from app.conflicts.router import router as conflicts_router
 from app.consume.router import (
@@ -72,3 +73,4 @@ app.include_router(projections_router)
 app.include_router(graph_router)
 app.include_router(metrics_router)
 app.include_router(helpdesk_router)
+app.include_router(assistant_router)

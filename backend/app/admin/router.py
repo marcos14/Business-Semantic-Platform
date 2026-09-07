@@ -58,6 +58,37 @@ def list_users(db: Session = Depends(get_db)) -> list[User]:
     return list(db.scalars(select(User).order_by(User.email)))
 
 
+class UserPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=8)
+
+
+@router.patch("/users/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: uuid.UUID,
+    body: UserPatch,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_user),
+) -> User:
+    """Nome, situação (ativo/inativo) e senha. Desativar não apaga nada: bloqueia o login."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário inexistente")
+    if body.name is not None:
+        user.name = body.name
+    if body.active is not None:
+        if user.id == admin.id and not body.active:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "Você não pode desativar a si mesmo"
+            )
+        user.active = body.active
+    if body.password is not None:
+        user.password_hash = hash_password(body.password)
+    db.commit()
+    return user
+
+
 # ---------- Domains / Capabilities ----------
 
 
@@ -217,6 +248,16 @@ def create_binding(body: BindingIn, db: Session = Depends(get_db)) -> RoleBindin
     db.add(binding)
     db.commit()
     return binding
+
+
+@router.get("/role-bindings", response_model=list[BindingOut])
+def list_bindings(
+    user_id: uuid.UUID | None = None, db: Session = Depends(get_db)
+) -> list[RoleBinding]:
+    stmt = select(RoleBinding).order_by(RoleBinding.user_id, RoleBinding.role)
+    if user_id is not None:
+        stmt = stmt.where(RoleBinding.user_id == user_id)
+    return list(db.scalars(stmt))
 
 
 @router.delete("/role-bindings/{binding_id}", status_code=status.HTTP_204_NO_CONTENT)

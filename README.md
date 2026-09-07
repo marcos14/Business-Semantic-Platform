@@ -98,6 +98,46 @@ expiração e ao rate limit. A chave é retornada somente na criação/rotação
 `POST /helpdesk/clients/{id}/rotate` para rotacionar e `DELETE /helpdesk/clients/{id}` para revogar.
 Perguntas são redigidas e identificadores do contexto são pseudonimizados antes da persistência.
 
+## Servidor MCP e assistente operacional
+
+Toda a operação da plataforma — de cadastrar uma fonte a alterar o nome de um usuário — está
+exposta como **tools MCP** (`backend/app/mcp/`). Cada tool é uma chamada à própria API HTTP
+com o RBAC do usuário autenticado: nada contorna os gates do kernel, o audit trail ou a
+exportação canônica. Duas tools compostas trazem o andamento já interpretado:
+`platform_overview` (fontes, campanhas, fila/workers, inbox, cobertura, atenção, conflitos,
+alertas) e `source_progress` (inventário, campanhas, runs, cobertura e **próximos passos** de
+uma source). Catálogo: `uv run python -m app.mcp.server --list` (ou `GET /assistant/tools`).
+
+**Agente externo (Claude Code e outros clientes MCP).** Defina no `.env` o usuário com que o
+agente vai operar (`BSP_EMAIL`/`BSP_PASSWORD`, ou um JWT em `BSP_TOKEN`) e a URL da API
+(`BSP_API_URL`). O `.mcp.json` na raiz já registra o servidor para o Claude Code aberto neste
+repositório; em outro diretório:
+
+```sh
+claude mcp add bsp -- uv run --directory C:/Projetos/bsp/backend python -m app.mcp.server
+```
+
+Transporte remoto (Streamable HTTP em `/mcp`): `uv run python -m app.mcp.server --transport http
+--host 0.0.0.0 --port 8765`. Flags `--read-only` e `--groups meta,metrics,...` restringem o que é
+exposto. Tools que escrevem vêm anotadas (`readOnlyHint=false`); as difíceis de desfazer
+(`destructiveHint`) — decisões, revogações, exclusões — devem ser confirmadas pelo cliente.
+
+**Agente interno (OpenRouter).** O assistente usa `OPENROUTER_MODEL` (ou `ASSISTANT_MODEL`)
+com tool calling sobre o mesmo catálogo. Na web, tela **Assistente** (`/assistant`): ele roda
+com as permissões de quem está logado (`POST /assistant/chat` repassa o JWT), mostra as tools
+consultadas e tem modo somente leitura. Na linha de comando:
+
+```sh
+cd backend
+uv run python -m app.mcp.agent "como está o andamento? o que está travando o funil?"
+uv run python -m app.mcp.agent                        # REPL
+uv run python -m app.mcp.agent --read-only "resuma a inbox por prioridade"
+```
+
+Exemplos do que dá para pedir: "o que falta na source ERP?", "cadastre a capability
+faturamento no domain finance com esta descrição…", "dispare o inventário da source X",
+"mude o nome do usuário Ana para Ana Souza", "quais capabilities ainda não têm campanha?".
+
 ## Discovery (harness Claude Code)
 
 O discovery roda **no host** (onde o CLI `claude` está logado), nunca no container.

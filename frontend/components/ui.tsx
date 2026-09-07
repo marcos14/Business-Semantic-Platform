@@ -189,6 +189,9 @@ function Nav() {
       <Link href="/helpdesk" style={link}>
         Help Desk
       </Link>
+      <Link href="/assistant" style={link}>
+        Assistente
+      </Link>
       <Link href="/conflicts" style={link}>
         Conflitos
       </Link>

@@ -76,5 +76,17 @@ class Settings(BaseSettings):
     dedup_skip_similarity: float = 0.93
     dedup_flag_similarity: float = 0.55
 
+    # --- Servidor MCP / assistente operacional ---
+    # URL da API vista pelo servidor MCP (host) e pelo próprio endpoint /assistant/chat
+    # (loopback: a API chama a si mesma com o JWT de quem perguntou).
+    bsp_api_url: str = "http://127.0.0.1:8000"
+    # Credenciais do servidor MCP externo (Claude Code etc.): token pronto OU e-mail/senha.
+    bsp_token: str = ""
+    bsp_email: str = ""
+    bsp_password: str = ""
+    # Modelo do assistente (tool calling via OpenRouter); vazio = OPENROUTER_MODEL.
+    assistant_model: str = ""
+    assistant_max_steps: int = 12  # chamadas de tool por pergunta (teto de custo/latência)
+
 
 settings = Settings()
