@@ -35,6 +35,28 @@ function slugify(s: string): string {
     .slice(0, 100);
 }
 
+/** Id da source, visível e copiável: é o que a CLI e o bsp-agent pedem (--source-id, --source <id>=<pasta>). */
+function IdSource({ id }: { id: string }) {
+  const [copiado, setCopiado] = useState(false);
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    } catch {
+      window.prompt("Copie o id da source:", id);
+    }
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }} title="id da source (use na CLI: --source-id, ou no bsp-agent: --source <id>=<pasta>)">
+      <code style={{ fontSize: 12, color: "#4a5568", background: "#edf2f7", padding: "2px 6px", borderRadius: 4, userSelect: "all" }}>{id}</code>
+      <button style={{ ...btn, padding: "2px 8px", fontSize: 12 }} onClick={copiar}>
+        {copiado ? "Copiado!" : "Copiar id"}
+      </button>
+    </span>
+  );
+}
+
 /** URL git de onde os agentes remotos clonam esta source (executor remoto). */
 function EditarGitUrl({ source, onOk, onErro }: { source: any; onOk: (m: string) => void; onErro: (m: string) => void }) {
   const [valor, setValor] = useState<string>(source.git_url ?? "");
@@ -548,6 +570,10 @@ export default function SourcesPage() {
               {s.branch ? ` @ ${s.branch}` : ""}
               {s.commit ? ` (${s.commit.slice(0, 8)})` : ""}
               {s.git_url ? <span style={{ color: "#a0aec0" }} title="URL git usada pelos agentes remotos"> · git: {s.git_url}</span> : null}
+            </div>
+            <div style={{ fontSize: 12, color: "#718096", marginTop: 6, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span>id</span>
+              <IdSource id={s.id} />
             </div>
 
             {aberta === s.id && (
