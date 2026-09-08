@@ -156,6 +156,13 @@ def is_clean(ws: Workspace) -> bool:
     return not _git(ws.path, "status", "--porcelain").stdout.strip()
 
 
+def clean_flag(ws: Workspace, res) -> str:
+    """Valor de `DiscoveryRun.workspace_clean`: o workspace daqui não mudou E, se o harness
+    rodou num agente remoto, o agente também reportou o clone limpo."""
+    remoto = getattr(res, "workspace_clean", None)
+    return "yes" if is_clean(ws) and remoto is not False else "no"
+
+
 def _on_rm_error(func, path, _exc):
     # .git no Windows tem arquivos readonly
     Path(path).chmod(stat.S_IWRITE)

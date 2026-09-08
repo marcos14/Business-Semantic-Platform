@@ -368,6 +368,8 @@ def run_discovery(
                 timeout_min=timeout_min,
                 executable=executable,
                 tools=claude_code.tools_for(ws.inplace),
+                remote=claude_code.remote_context(ws, source),
+                run_id=str(run.id),
             )
         )
         run.cli_version = res.cli_version
@@ -375,7 +377,8 @@ def run_discovery(
         run.log_path = res.log_path
         run.cost_usd = res.cost_usd
         run.num_turns = res.num_turns
-        run.workspace_clean = "yes" if workspace.is_clean(ws) else "no"
+        run.workspace_clean = workspace.clean_flag(ws, res)
+        run.executed_by = res.executed_by
 
         if res.session_limit:
             return _finish(db, run, "limit", res.limit_detail or res.result_text)
@@ -804,6 +807,8 @@ def run_directed_discovery(
                 timeout_min=timeout_min,
                 executable=executable,
                 tools=claude_code.tools_for(ws.inplace),
+                remote=claude_code.remote_context(ws, source),
+                run_id=str(run.id),
             )
         )
         run.cli_version = res.cli_version
@@ -811,7 +816,8 @@ def run_directed_discovery(
         run.log_path = res.log_path
         run.cost_usd = res.cost_usd
         run.num_turns = res.num_turns
-        run.workspace_clean = "yes" if workspace.is_clean(ws) else "no"
+        run.workspace_clean = workspace.clean_flag(ws, res)
+        run.executed_by = res.executed_by
 
         if res.session_limit:
             return _finish(db, run, "limit", res.limit_detail or res.result_text)
@@ -1083,6 +1089,8 @@ def run_corroboration(
                 timeout_min=timeout_min,
                 executable=executable,
                 tools=claude_code.tools_for(ws.inplace),
+                remote=claude_code.remote_context(ws, source),
+                run_id=str(run.id),
             )
         )
         run.cli_version = res.cli_version
@@ -1090,7 +1098,8 @@ def run_corroboration(
         run.log_path = res.log_path
         run.cost_usd = res.cost_usd
         run.num_turns = res.num_turns
-        run.workspace_clean = "yes" if workspace.is_clean(ws) else "no"
+        run.workspace_clean = workspace.clean_flag(ws, res)
+        run.executed_by = res.executed_by
 
         if res.session_limit:
             return _finish(db, run, "limit", res.limit_detail or res.result_text)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { get, post } from "@/lib/api";
+import { api, get, post } from "@/lib/api";
 import { Badge, Shell, btn, btnPrimary, card, input } from "@/components/ui";
 
 const TIPOS = [
@@ -35,9 +35,46 @@ function slugify(s: string): string {
     .slice(0, 100);
 }
 
+/** URL git de onde os agentes remotos clonam esta source (executor remoto). */
+function EditarGitUrl({ source, onOk, onErro }: { source: any; onOk: (m: string) => void; onErro: (m: string) => void }) {
+  const [valor, setValor] = useState<string>(source.git_url ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const mudou = (valor.trim() || null) !== (source.git_url ?? null);
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "8px 0" }}>
+      <span style={{ fontSize: 13, color: "#4a5568", whiteSpace: "nowrap" }} title="Executor remoto: de onde os agentes nas máquinas da equipe clonam a fonte">
+        URL git (agentes remotos)
+      </span>
+      <input
+        style={{ ...input, flex: 1, minWidth: 260 }}
+        placeholder="vazio = agentes usam o caminho configurado neles (--source) ou o repositório acima"
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+      />
+      <button
+        style={{ ...btn, padding: "4px 10px", fontSize: 12 }}
+        disabled={!mudou || salvando}
+        onClick={async () => {
+          setSalvando(true);
+          try {
+            await api(`/sources/${source.id}`, { method: "PATCH", body: JSON.stringify({ git_url: valor.trim() || null }) });
+            onOk("URL git da source atualizada.");
+          } catch (e: any) {
+            onErro(e.message);
+          } finally {
+            setSalvando(false);
+          }
+        }}
+      >
+        {salvando ? "Salvando…" : "Salvar"}
+      </button>
+    </div>
+  );
+}
+
 function NovaSource({ domains, onCriada, onErro }: any) {
   const [aberto, setAberto] = useState(false);
-  const [f, setF] = useState<any>({ type: "source_code", name: "", repository: "", branch: "", commit: "", location: "", domain_slug: "" });
+  const [f, setF] = useState<any>({ type: "source_code", name: "", repository: "", git_url: "", branch: "", commit: "", location: "", domain_slug: "" });
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
 
   if (!aberto)
@@ -68,6 +105,13 @@ function NovaSource({ domains, onCriada, onErro }: any) {
         <input style={{ ...input, width: 120 }} placeholder="branch" value={f.branch} onChange={(e) => set("branch", e.target.value)} />
         <input style={{ ...input, width: 130 }} placeholder="commit (opcional)" value={f.commit} onChange={(e) => set("commit", e.target.value)} />
       </div>
+      <input
+        style={{ ...input, width: "100%", marginTop: 8 }}
+        placeholder="URL git para agentes remotos (opcional; ex.: https://dev.azure.com/org/projeto/_git/repo). Vazio = o caminho acima"
+        value={f.git_url}
+        onChange={(e) => set("git_url", e.target.value)}
+        title="Executor remoto: de onde os agentes nas máquinas da equipe clonam a fonte"
+      />
       <input style={{ ...input, width: "100%", marginTop: 8 }} placeholder="Location (para fontes não-git: caminho de docs, URL de API…)" value={f.location} onChange={(e) => set("location", e.target.value)} />
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
@@ -75,11 +119,11 @@ function NovaSource({ domains, onCriada, onErro }: any) {
           onClick={async () => {
             try {
               const body: any = { type: f.type, name: f.name };
-              for (const k of ["repository", "branch", "commit", "location", "domain_slug"])
+              for (const k of ["repository", "git_url", "branch", "commit", "location", "domain_slug"])
                 if (f[k]) body[k] = f[k];
               await post("/sources", body);
               setAberto(false);
-              setF({ ...f, name: "", repository: "", branch: "", commit: "", location: "" });
+              setF({ ...f, name: "", repository: "", git_url: "", branch: "", commit: "", location: "" });
               onCriada();
             } catch (e: any) {
               onErro(e.message);
@@ -503,10 +547,14 @@ export default function SourcesPage() {
               {s.repository ?? s.location ?? "—"}
               {s.branch ? ` @ ${s.branch}` : ""}
               {s.commit ? ` (${s.commit.slice(0, 8)})` : ""}
+              {s.git_url ? <span style={{ color: "#a0aec0" }} title="URL git usada pelos agentes remotos"> · git: {s.git_url}</span> : null}
             </div>
 
             {aberta === s.id && (
               <div style={{ marginTop: 10 }}>
+                {admin && s.repository && (
+                  <EditarGitUrl key={s.git_url ?? ""} source={s} onOk={(m: string) => { setMsg(m); reload(); }} onErro={setMsg} />
+                )}
                 {admin && s.repository && (
                   <>
                     <h4 style={{ margin: "8px 0 6px" }}>Ações</h4>

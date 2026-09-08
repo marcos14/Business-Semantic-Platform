@@ -16,6 +16,7 @@ from app.consume.router import (
     search_router,
 )
 from app.discovery.router import router as discovery_router
+from app.harness.router import router as harness_router
 from app.health import router as health_router
 from app.helpdesk.router import router as helpdesk_router
 from app.jobs import job_app
@@ -73,4 +74,5 @@ app.include_router(projections_router)
 app.include_router(graph_router)
 app.include_router(metrics_router)
 app.include_router(helpdesk_router)
+app.include_router(harness_router)
 app.include_router(assistant_router)

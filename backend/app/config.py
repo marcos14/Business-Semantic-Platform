@@ -24,6 +24,18 @@ class Settings(BaseSettings):
     harness_effort: str = "high"
     harness_inventory_effort: str = "medium"  # inventário é classificação: effort menor basta
     harness_probe_model: str = "haiku"  # sonda de franquia: o mais barato possível
+    # --- Executor do harness (opcional) ---
+    # local: o worker chama o `claude` da própria máquina (padrão, comportamento de sempre).
+    # remote: o worker publica cada chamada como tarefa e agentes `bsp-agent` nas máquinas
+    # da equipe executam com a própria chave de API; o servidor continua montando o prompt
+    # e ingerindo. Env: HARNESS_EXECUTOR.
+    harness_executor: str = "local"
+    harness_task_lease_seconds: int = 180  # sem heartbeat por este tempo → volta à fila
+    harness_task_max_attempts: int = 3
+    harness_remote_wait_seconds: int = 7200  # quanto o worker espera um agente concluir
+    harness_poll_seconds: float = 3.0
+    harness_min_agent_version: str = "0.1.0"
+    harness_log_max_chars: int = 4_000_000  # log .jsonl enviado pelo agente (auditoria)
     # Repositório git dedicado do conhecimento canônico (D3); env: CANONICAL_REPO_PATH
     canonical_repo_path: str = str(Path(__file__).resolve().parents[2] / "canonical-repo")
     # Logs .jsonl dos runs do harness (audit §87); env: DISCOVERY_LOGS_DIR

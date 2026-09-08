@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 semantic = "app.cli:main"
+bsp-agent = "app.agent.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -51,5 +51,7 @@ class DiscoveryRun(Base):
     workspace_clean: Mapped[str | None] = mapped_column(String(10), nullable=True)  # yes|no
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str] = mapped_column(String(320))
+    # Executor remoto: agente (máquina/pessoa) que rodou o harness; nulo = worker local.
+    executed_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

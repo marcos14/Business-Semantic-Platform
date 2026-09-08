@@ -68,6 +68,7 @@ def _out(r: DiscoveryRun) -> dict:
         "workspace_clean": r.workspace_clean,
         "error": r.error,
         "created_by": r.created_by,
+        "executed_by": r.executed_by,
         "started_at": r.started_at.isoformat(),
         "finished_at": r.finished_at.isoformat() if r.finished_at else None,
     }

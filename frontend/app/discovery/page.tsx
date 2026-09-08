@@ -24,6 +24,15 @@ const RUN_STATUS: Record<string, { label: string; color: string }> = {
   auth_failed: { label: "falha de autenticação", color: "#c53030" },
 };
 
+const AGENT_STATUS: Record<string, { label: string; color: string }> = {
+  idle: { label: "online", color: "#276749" },
+  busy: { label: "executando", color: "#2b6cb0" },
+  limited: { label: "limitado", color: "#975a16" },
+  paused: { label: "pausado", color: "#718096" },
+  offline: { label: "offline", color: "#a0aec0" },
+  revoked: { label: "revogado", color: "#c53030" },
+};
+
 const WORKER_CMD = "uv run procrastinate --app=app.jobs.job_app worker --queues discovery";
 
 function fmtDate(iso: string | null | undefined): string {
@@ -99,6 +108,8 @@ export default function DiscoveryPage() {
   const [ocultarBloqueados, setOcultarBloqueados] = useState(true);
   const [mostrarCampanhasAntigas, setMostrarCampanhasAntigas] = useState(false);
   const [aberto, setAberto] = useState<string | null>(null);
+  const [harness, setHarness] = useState<any | null>(null);
+  const [agentes, setAgentes] = useState<any[]>([]);
 
   useEffect(() => {
     try {
@@ -112,14 +123,18 @@ export default function DiscoveryPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [q, r, b] = await Promise.all([
+      const [q, r, b, h, ag] = await Promise.all([
         get("/discovery/queue"),
         get(`/discovery/runs?limit=200${ocultarBloqueados ? "&exclude=limit,auth_failed" : ""}`),
         get("/discovery/batches"),
+        get("/harness/status").catch(() => null),
+        get("/harness/agents").catch(() => []),
       ]);
       setQueue(q);
       setRuns(r);
       setBatches(b);
+      setHarness(h);
+      setAgentes(ag);
       setErro(null);
       setUltimo(Date.now());
     } catch (e: any) {
@@ -167,6 +182,9 @@ export default function DiscoveryPage() {
   );
   const custoTotal = runs.reduce((acc, r) => acc + (r.cost_usd || 0), 0);
   const emExecucao = runs.filter((r) => r.status === "running").length;
+  const remoto = harness?.executor === "remote";
+  const agentesOnline = agentes.filter((a) => ["idle", "busy", "limited", "paused"].includes(a.status)).length;
+  const tarefasRemotas = harness?.tasks ?? {};
 
   const cancelar = async (id: number) => {
     try {
@@ -228,6 +246,9 @@ export default function DiscoveryPage() {
         <Kpi label="jobs pendentes" value={pendentes} color={pendentes > 0 ? "#975a16" : undefined} />
         <Kpi label="jobs executando" value={executando} color={executando > 0 ? "#2b6cb0" : undefined} />
         <Kpi label="workers ativos" value={workersVivos} color={workersVivos === 0 ? "#c53030" : "#276749"} />
+        {remoto && (
+          <Kpi label="agentes online" value={agentesOnline} color={agentesOnline === 0 ? "#c53030" : "#276749"} />
+        )}
         <Kpi label="runs em execução" value={emExecucao} />
         <Kpi label="custo acumulado" value={`US$ ${custoTotal.toFixed(2)}`} />
       </div>
@@ -275,6 +296,85 @@ export default function DiscoveryPage() {
           Há {workersVivos} worker(s) com heartbeat, mas o heartbeat não informa a fila. Se o job
           continuar pendente, confirme que o worker do host foi iniciado com <code>--queues discovery</code>.
         </div>
+      )}
+
+      {/* Agentes remotos (executor remoto) */}
+      {(remoto || agentes.length > 0) && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
+            <h2 style={{ fontSize: 18, margin: 0, flex: 1 }}>
+              Agentes remotos{" "}
+              <span style={{ fontSize: 13, color: "#718096", fontWeight: 400 }}>
+                executor {remoto ? "remoto: o harness roda nas máquinas da equipe" : "local (agentes cadastrados ficam ociosos)"}
+              </span>
+            </h2>
+            {remoto && (
+              <span style={{ fontSize: 12, color: "#4a5568" }}>
+                tarefas: {tarefasRemotas.ready ?? 0} na fila · {tarefasRemotas.leased ?? 0} em execução ·{" "}
+                {tarefasRemotas.succeeded ?? 0} concluídas · {tarefasRemotas.failed ?? 0} falhas
+              </span>
+            )}
+          </div>
+          {remoto && agentesOnline === 0 && (tarefasRemotas.ready ?? 0) + (tarefasRemotas.leased ?? 0) > 0 && (
+            <div style={{ ...card, background: "#fffaf0", border: "1px solid #f6ad55" }}>
+              <strong>Há tarefa esperando e nenhum agente online.</strong> O worker publica as chamadas ao harness e
+              espera um agente concluir. Peça a alguém da equipe para rodar <code>bsp-agent run</code> (Admin → Agentes remotos).
+            </div>
+          )}
+          <div style={card}>
+            {agentes.length === 0 ? (
+              <p style={{ color: "#718096", margin: 0, fontSize: 13 }}>
+                Nenhum agente cadastrado. Crie credenciais em <a href="/admin" style={{ color: "#2b6cb0" }}>Admin → Agentes remotos</a>.
+              </p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ color: "#718096", textAlign: "left" }}>
+                      <th style={th}>agente</th>
+                      <th style={th}>pessoa</th>
+                      <th style={th}>status</th>
+                      <th style={th}>visto</th>
+                      <th style={th}>versão</th>
+                      <th style={th}>tarefas</th>
+                      <th style={th}>custo hoje</th>
+                      <th style={th}>total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentes.map((a) => {
+                      const st = AGENT_STATUS[a.status] ?? { label: a.status, color: "#718096" };
+                      return (
+                        <tr key={a.id} style={{ borderTop: "1px solid #edf2f7" }}>
+                          <td style={td}><strong>{a.name}</strong>{a.host ? <span style={{ color: "#a0aec0" }}> · {a.host}</span> : null}</td>
+                          <td style={td}>{a.user_email ?? "—"}</td>
+                          <td style={td}>
+                            <Badge text={st.label} color={st.color} />
+                            {a.status === "limited" && a.limited_until && (
+                              <span style={{ fontSize: 12, color: "#975a16", marginLeft: 6 }} title={a.limit_detail ?? ""}>
+                                até {fmtDate(a.limited_until)}
+                              </span>
+                            )}
+                          </td>
+                          <td style={td}>{a.last_seen_at ? fmtAge(a.last_seen_at, now) : "nunca"}</td>
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }} title={a.cli_version ?? ""}>
+                            {a.agent_version ?? "—"}
+                          </td>
+                          <td style={td}>
+                            <span style={{ color: "#276749" }}>{a.tasks_done} ok</span>
+                            {a.tasks_failed > 0 && <span style={{ color: "#c53030" }}> · {a.tasks_failed} falhas</span>}
+                          </td>
+                          <td style={td}>US$ {(a.cost_usd_today ?? 0).toFixed(2)}</td>
+                          <td style={td}>US$ {(a.cost_usd_total ?? 0).toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Campanhas */}
@@ -481,6 +581,7 @@ export default function DiscoveryPage() {
               <Badge text={st.label} color={st.color} />
               <Badge text={agentLabel(r)} color={r.agent === "inventory" ? "#6b46c1" : undefined} />
               {r.line_range?.startsWith("f:") && <Badge text="follow-up" color="#975a16" />}
+              {r.executed_by && <Badge text="agente remoto" color="#2c7a7b" />}
               <strong>{src?.name ?? r.source_id.slice(0, 8)}</strong>
               <span style={{ color: "#718096", fontSize: 13 }}>
                 {r.domain}{r.capability ? `/${r.capability}` : ""}
@@ -538,6 +639,7 @@ export default function DiscoveryPage() {
                     ["session", r.session_id],
                     ["log (.jsonl no host do worker)", r.log_path],
                     ["disparado por", r.created_by],
+                    ["executado por", r.executed_by ?? "worker local"],
                     ["início", fmtDate(r.started_at)],
                     ["fim", fmtDate(r.finished_at)],
                     ["potenciais duplicatas", r.potential_duplicates],

@@ -24,11 +24,24 @@ class SourceIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     location: str | None = None
     repository: str | None = None
+    # URL git de onde agentes remotos clonam (executor remoto); vazio = `repository`.
+    git_url: str | None = None
     branch: str | None = None
     commit: str | None = None
     version: str | None = None
     domain_slug: str | None = None
     metadata: dict | None = None
+
+
+class SourcePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    location: str | None = None
+    repository: str | None = None
+    git_url: str | None = None
+    branch: str | None = None
+    commit: str | None = None
+    version: str | None = None
+    domain_slug: str | None = None
 
 
 def _out(s: Source) -> dict:
@@ -38,6 +51,7 @@ def _out(s: Source) -> dict:
         "name": s.name,
         "location": s.location,
         "repository": s.repository,
+        "git_url": s.git_url,
         "branch": s.branch,
         "commit": s.commit,
         "version": s.version,
@@ -59,6 +73,7 @@ def create_source(
         name=body.name,
         location=body.location,
         repository=body.repository,
+        git_url=body.git_url,
         branch=body.branch,
         commit=body.commit,
         version=body.version,
@@ -67,6 +82,23 @@ def create_source(
         created_by=admin.email,
     )
     db.add(src)
+    db.commit()
+    return _out(src)
+
+
+@router.patch("/{source_id}")
+def update_source(
+    source_id: uuid.UUID,
+    body: SourcePatch,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require(Role.ADMINISTRATOR)),
+) -> dict:
+    """Ajusta campos de cadastro (ex.: `git_url` para o executor remoto)."""
+    src = db.get(Source, source_id)
+    if src is None:
+        raise NotFoundError(f"Source não encontrada: {source_id}")
+    for campo, valor in body.model_dump(exclude_unset=True).items():
+        setattr(src, campo, valor)
     db.commit()
     return _out(src)
 

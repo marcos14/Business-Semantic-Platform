@@ -2,6 +2,7 @@ from app.models.auth import Capability, Domain, Role, RoleBinding, User
 from app.models.confidence import ConfidenceScore, ConfidenceSignal, Policy
 from app.models.discovery import DiscoveryRun
 from app.models.embeddings import AtomEmbedding
+from app.models.harness import HarnessAgent, HarnessTask
 from app.models.helpdesk import (
     EvidenceFreshness,
     HelpDeskClientCredential,
@@ -38,6 +39,8 @@ __all__ = [
     "Evidence",
     "EvidenceLink",
     "EvidenceFreshness",
+    "HarnessAgent",
+    "HarnessTask",
     "HelpDeskClientCredential",
     "HelpDeskFeedback",
     "HelpDeskInteraction",

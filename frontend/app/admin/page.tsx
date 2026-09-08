@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, get, post } from "@/lib/api";
+import { API, api, get, post } from "@/lib/api";
 import { Badge, Shell, btn, btnPrimary, card, input } from "@/components/ui";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -27,6 +27,247 @@ type EvidenceProfile = {
 type Capability = { slug: string; domain_slug: string; name: string; description?: string | null };
 
 const textarea = { ...input, width: "100%", minHeight: 56, fontFamily: "inherit", resize: "vertical" as const };
+
+type Agente = {
+  id: string;
+  name: string;
+  client_id: string;
+  user_email: string | null;
+  active: boolean;
+  status: string;
+  host?: string | null;
+  agent_version?: string | null;
+  cli_version?: string | null;
+  last_seen_at?: string | null;
+  limited_until?: string | null;
+  limit_detail?: string | null;
+  tasks_done: number;
+  tasks_failed: number;
+  cost_usd_today: number;
+  cost_usd_total: number;
+};
+
+const AGENT_STATUS: Record<string, { label: string; color: string }> = {
+  idle: { label: "online", color: "#276749" },
+  busy: { label: "executando", color: "#2b6cb0" },
+  limited: { label: "limitado", color: "#975a16" },
+  paused: { label: "pausado", color: "#718096" },
+  offline: { label: "offline", color: "#a0aec0" },
+  revoked: { label: "revogado", color: "#c53030" },
+};
+
+function fmtVisto(iso: string | null | undefined): string {
+  if (!iso) return "nunca";
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `há ${s}s`;
+  if (s < 3600) return `há ${Math.floor(s / 60)}min`;
+  if (s < 86400) return `há ${Math.floor(s / 3600)}h`;
+  return new Date(iso).toLocaleString("pt-BR");
+}
+
+/** Executor remoto: credenciais dos agentes que rodam o harness nas máquinas da equipe. */
+function AgentesRemotos({ onOk, onErro }: { onOk: (m: string) => void; onErro: (m: string) => void }) {
+  const [agentes, setAgentes] = useState<Agente[]>([]);
+  const [status, setStatus] = useState<any>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [name, setName] = useState("");
+  const [userId, setUserId] = useState("");
+  const [chave, setChave] = useState<{ name: string; api_key: string } | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [mostrarRevogados, setMostrarRevogados] = useState(false);
+
+  const carregar = useCallback(async () => {
+    try {
+      const [a, s] = await Promise.all([
+        get(`/harness/agents?include_revoked=${mostrarRevogados}`),
+        get("/harness/status"),
+      ]);
+      setAgentes(a);
+      setStatus(s);
+    } catch (e: any) {
+      onErro(e.message);
+    }
+  }, [mostrarRevogados, onErro]);
+
+  useEffect(() => {
+    carregar();
+    get("/admin/users").then(setUsers).catch(() => {});
+  }, [carregar]);
+
+  const criar = async () => {
+    if (!name.trim()) return onErro("Informe um nome para o agente (ex.: Laptop da Ana)");
+    if (!userId) return onErro("Escolha a pessoa dona do agente");
+    setSalvando(true);
+    try {
+      const r = await post("/harness/agents", { name: name.trim(), user_id: userId });
+      setChave({ name: r.name, api_key: r.api_key });
+      setName("");
+      onOk("Agente criado. Copie a chave agora: ela não será mostrada de novo.");
+      carregar();
+    } catch (e: any) {
+      onErro(e.message);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const rotacionar = async (a: Agente) => {
+    if (!confirm(`Gerar nova chave para "${a.name}"? A chave atual deixa de valer na hora.`)) return;
+    try {
+      const r = await post(`/harness/agents/${a.id}/rotate`);
+      setChave({ name: r.name, api_key: r.api_key });
+      onOk("Chave rotacionada. Repasse a nova chave para a pessoa.");
+      carregar();
+    } catch (e: any) {
+      onErro(e.message);
+    }
+  };
+
+  const revogar = async (a: Agente) => {
+    if (!confirm(`Revogar o agente "${a.name}"? Tarefas em execução nele voltam para a fila.`)) return;
+    try {
+      await api(`/harness/agents/${a.id}`, { method: "DELETE" });
+      onOk("Agente revogado.");
+      carregar();
+    } catch (e: any) {
+      onErro(e.message);
+    }
+  };
+
+  const remoto = status?.executor === "remote";
+  return (
+    <div style={{ ...card, border: "2px solid #2c7a7b" }}>
+      <h3 style={{ marginTop: 0 }}>
+        Agentes remotos{" "}
+        <span style={{ fontSize: 13, color: "#718096", fontWeight: 400 }}>
+          executor do harness: <strong>{status?.executor ?? "…"}</strong>
+        </span>
+      </h3>
+      <p style={{ fontSize: 13, color: "#718096", marginTop: -6 }}>
+        Com <code>HARNESS_EXECUTOR=remote</code> no worker, cada chamada ao <code>claude</code> vira uma
+        tarefa que um agente na máquina de alguém da equipe executa com a própria chave de API. O
+        servidor continua montando o prompt, verificando a evidência e gravando. Cada pessoa recebe
+        uma credencial própria, revogável.
+        {!remoto && (
+          <>
+            {" "}
+            <strong>Hoje o executor é local</strong>: agentes cadastrados ficam ociosos até a troca.
+          </>
+        )}
+      </p>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          style={{ ...input, flex: 1, minWidth: 200 }}
+          placeholder="Nome do agente * (ex.: Laptop da Ana)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && criar()}
+        />
+        <select style={{ ...input, minWidth: 220 }} value={userId} onChange={(e) => setUserId(e.target.value)}>
+          <option value="">pessoa dona do agente *</option>
+          {users.filter((u) => u.active).map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name} ({u.email})
+            </option>
+          ))}
+        </select>
+        <button style={btnPrimary} disabled={salvando} onClick={criar}>
+          {salvando ? "Criando…" : "Criar credencial"}
+        </button>
+      </div>
+
+      {chave && (
+        <div style={{ ...card, marginTop: 12, marginBottom: 0, background: "#f0fff4", border: "1px solid #68d391" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <strong style={{ flex: 1 }}>Chave de "{chave.name}" (mostrada uma única vez)</strong>
+            <button style={btn} onClick={() => setChave(null)}>fechar</button>
+          </div>
+          <pre style={{ margin: "8px 0 0", padding: 8, background: "#1a202c", color: "#e2e8f0", borderRadius: 6, fontSize: 12, overflowX: "auto" }}>
+            cd backend{"\n"}
+            uv run bsp-agent setup --api {API} --key {chave.api_key} --name "{chave.name}"{"\n"}
+            uv run bsp-agent doctor{"\n"}
+            uv run bsp-agent run --max-usd-per-day 15
+          </pre>
+          <p style={{ fontSize: 12, color: "#4a5568", margin: "8px 0 0" }}>
+            A pessoa precisa do <code>claude</code> instalado e de <code>ANTHROPIC_API_KEY</code> no ambiente (ou
+            <code> --anthropic-key</code> no setup). Se a Source não tiver URL git alcançável da máquina dela,
+            informe o caminho local com <code>--source &lt;source_id&gt;=&lt;pasta do repositório&gt;</code>.
+          </p>
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "14px 0 6px" }}>
+        <span style={{ fontSize: 13, color: "#718096", flex: 1 }}>
+          {agentes.length} agente(s)
+          {status?.tasks && remoto && (
+            <>
+              {" "}· tarefas: {status.tasks.ready ?? 0} na fila · {status.tasks.leased ?? 0} em execução ·{" "}
+              {status.tasks.succeeded ?? 0} concluídas · {status.tasks.failed ?? 0} falhas
+            </>
+          )}
+        </span>
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="checkbox" checked={mostrarRevogados} onChange={(e) => setMostrarRevogados(e.target.checked)} />
+          mostrar revogados
+        </label>
+        <button style={btn} onClick={carregar}>Atualizar</button>
+      </div>
+      {agentes.length === 0 ? (
+        <p style={{ fontSize: 13, color: "#a0aec0", margin: 0 }}>Nenhum agente cadastrado.</p>
+      ) : (
+        <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ color: "#718096", textAlign: "left" }}>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>agente</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>pessoa</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>status</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>visto</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>versão</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>tarefas</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>custo hoje / total</th>
+              <th style={{ padding: "4px 6px", width: 170 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {agentes.map((a) => {
+              const st = AGENT_STATUS[a.status] ?? { label: a.status, color: "#718096" };
+              return (
+                <tr key={a.id} style={{ borderTop: "1px solid #edf2f7", opacity: a.active ? 1 : 0.6 }}>
+                  <td style={{ padding: "6px" }}>
+                    <strong>{a.name}</strong>
+                    <div style={{ fontFamily: "monospace", fontSize: 11, color: "#a0aec0" }}>{a.client_id}{a.host ? ` · ${a.host}` : ""}</div>
+                  </td>
+                  <td style={{ padding: "6px" }}>{a.user_email ?? "—"}</td>
+                  <td style={{ padding: "6px" }} title={a.limit_detail ?? ""}>
+                    <Badge text={st.label} color={st.color} />
+                  </td>
+                  <td style={{ padding: "6px" }}>{fmtVisto(a.last_seen_at)}</td>
+                  <td style={{ padding: "6px", fontFamily: "monospace", fontSize: 12 }} title={a.cli_version ?? ""}>{a.agent_version ?? "—"}</td>
+                  <td style={{ padding: "6px" }}>
+                    <span style={{ color: "#276749" }}>{a.tasks_done} ok</span>
+                    {a.tasks_failed > 0 && <span style={{ color: "#c53030" }}> · {a.tasks_failed} falhas</span>}
+                  </td>
+                  <td style={{ padding: "6px" }}>US$ {(a.cost_usd_today ?? 0).toFixed(2)} / {(a.cost_usd_total ?? 0).toFixed(2)}</td>
+                  <td style={{ padding: "6px", whiteSpace: "nowrap" }}>
+                    {a.active ? (
+                      <>
+                        <button style={{ ...btn, padding: "4px 10px", fontSize: 12 }} onClick={() => rotacionar(a)}>Nova chave</button>{" "}
+                        <button style={{ ...btn, padding: "4px 10px", fontSize: 12, color: "#c53030" }} onClick={() => revogar(a)}>Revogar</button>
+                      </>
+                    ) : (
+                      <button style={{ ...btn, padding: "4px 10px", fontSize: 12 }} onClick={() => rotacionar(a)} title="reativa com uma chave nova">Reativar</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 function NovoDomain({
   profiles,
@@ -354,6 +595,8 @@ export default function AdminPage() {
               />
             )}
           </div>
+
+          <AgentesRemotos onOk={ok} onErro={erro} />
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
             <h2 style={{ fontSize: 18, margin: 0, flex: 1 }}>

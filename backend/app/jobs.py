@@ -76,44 +76,15 @@ def run_discovery_job(
         }
 
 
-RESET_DEFAULT_SECONDS = 1800
-RESET_MAX_SECONDS = 6 * 3600
+# A leitura do horário de reset vive no engine (o agente remoto também a usa);
+# reexportada aqui para quem importa de app.jobs.
+from app.engines.claude_code import (  # noqa: E402
+    RESET_DEFAULT_SECONDS,
+    RESET_MAX_SECONDS,
+    delay_until_reset,
+)
 
-
-def delay_until_reset(texto: str | None, agora=None) -> int:
-    """Segundos até o reset da franquia, lidos da mensagem do harness
-    ("You've hit your session limit · resets 10:30pm (America/Sao_Paulo)").
-    Sem horário reconhecível → 30min. Evita o ciclo de tentar a cada 30min e
-    bater no limite de novo (cada tentativa vira um run 'limit' na auditoria)."""
-    import re
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    if not texto:
-        return RESET_DEFAULT_SECONDS
-    m = re.search(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", texto, re.I)
-    if not m:
-        return RESET_DEFAULT_SECONDS
-    hora, minuto, ampm = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").lower()
-    if ampm == "pm" and hora < 12:
-        hora += 12
-    if ampm == "am" and hora == 12:
-        hora = 0
-    tz = None
-    mtz = re.search(r"\(([A-Za-z_]+/[A-Za-z_]+)\)", texto)
-    if mtz:
-        try:
-            tz = ZoneInfo(mtz.group(1))
-        except Exception:
-            tz = None
-    agora = agora or datetime.now(tz)
-    if tz is not None and agora.tzinfo is not None:
-        agora = agora.astimezone(tz)
-    alvo = agora.replace(hour=hora % 24, minute=minuto, second=0, microsecond=0)
-    if alvo <= agora:
-        alvo += timedelta(days=1)
-    delta = int((alvo - agora).total_seconds()) + 60  # folga de 1min após o reset
-    return max(60, min(delta, RESET_MAX_SECONDS))
+__all__ = ["RESET_DEFAULT_SECONDS", "RESET_MAX_SECONDS", "delay_until_reset"]
 
 
 def release_scheduled(
@@ -150,6 +121,10 @@ def probe_limit_job(timestamp: int | None = None) -> dict:
 
     from app.db import SessionLocal
     from app.engines import claude_code
+
+    if (settings.harness_executor or "local").strip().lower() == "remote":
+        # executor remoto: cada agente sonda a própria conta quando fica limitado
+        return {"skipped": "executor remoto"}
 
     with SessionLocal() as db:
         esperando = db.execute(

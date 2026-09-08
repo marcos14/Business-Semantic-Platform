@@ -263,6 +263,49 @@ informado na mensagem. A cada 10 minutos o job periódico `jobs.probe_limit` (fi
 ou a conta foi trocada, libera todos os jobs agendados. O botão "Liberar agora" na tela
 Discovery (ou `POST /discovery/queue/release`) faz o mesmo sob demanda.
 
+### Executor remoto: agentes nas máquinas da equipe (opcional)
+
+Por padrão (`HARNESS_EXECUTOR=local`) o worker do host chama o `claude` da própria máquina,
+como sempre. Com `HARNESS_EXECUTOR=remote` no `.env` do servidor (API e worker), cada chamada
+ao harness vira uma **tarefa** que um agente `bsp-agent`, rodando na máquina de alguém da
+equipe com a **própria chave de API** (`ANTHROPIC_API_KEY`), executa e devolve. O servidor
+continua fazendo tudo o que toca o banco: monta o prompt, fixa o commit, verifica a evidência
+contra o repositório e ingere. O agente só executa e nunca vê o Postgres.
+
+Como funciona: o worker do host continua consumindo a fila `discovery` (ele precisa do
+repositório para montar o prompt e verificar evidência), mas em vez de chamar o `claude`
+publica uma `HarnessTask` e espera. Agentes fazem `claim` (lease com heartbeat), clonam a
+Source **em cache próprio** no commit fixado (`git_url` da Source, ou um caminho local
+configurado no agente), rodam `claude -p` só com ferramentas de leitura e enviam o resultado
+com o log `.jsonl`, que fica no diretório de logs do worker como sempre. Lease vencido,
+clone impossível, rate limit ou limite de franquia devolvem a tarefa à fila na hora para
+outro agente; só o agente afetado fica de fora até o reset. O paralelismo é o número de
+agentes online: suba o worker com `--concurrency N` para manter N tarefas em voo.
+
+```sh
+# servidor: .env com HARNESS_EXECUTOR=remote; worker do host com concorrência
+cd backend
+uv run procrastinate --app=app.jobs.job_app worker --queues discovery --concurrency 8
+
+# Admin → Agentes remotos: crie uma credencial por pessoa (a chave aparece uma única vez)
+
+# máquina de cada pessoa (com `claude` instalado e ANTHROPIC_API_KEY no ambiente)
+cd backend
+uv run bsp-agent setup --api https://bsp.exemplo --key hag_xxx.yyy --name "Laptop da Ana" \
+    [--source <source_id>=C:/repos/legado] [--max-usd-per-day 15] [--hours 12:00-13:30,18:30-08:00]
+uv run bsp-agent doctor     # git, claude, chave e acesso à API
+uv run bsp-agent run        # consome tarefas até Ctrl+C; `pause` / `resume` / `status`
+```
+
+A Source ganha o campo `git_url` (Sources → nova source, ou `PATCH /sources/{id}`): de onde os
+agentes clonam. Sem ele, o agente usa o caminho configurado em `--source <id>=<pasta>` (também
+serve de `--reference` para não baixar tudo de novo) e, por último, o `repository` da Source.
+Cada run auditado registra `executed_by` (agente e pessoa); a tela Discovery mostra os agentes
+(status, versão, custo do dia, limite) e as tarefas remotas. Variáveis: `HARNESS_EXECUTOR`,
+`HARNESS_TASK_LEASE_SECONDS` (180), `HARNESS_TASK_MAX_ATTEMPTS` (3), `HARNESS_REMOTE_WAIT_SECONDS`
+(7200), `HARNESS_MIN_AGENT_VERSION`. A sonda de franquia (`jobs.probe_limit`) não roda no modo
+remoto: cada agente cuida da própria conta.
+
 Outras variáveis: `DISCOVERY_SOURCE_EXTENSIONS` (o que conta como fonte),
 `INVENTORY_BATCH_CHARS` (tamanho do lote), `DISCOVERY_CHUNK_LINES` (faixa por turno),
 `DISCOVERY_FOLLOWUPS_MAX` (follow-ups por campanha).

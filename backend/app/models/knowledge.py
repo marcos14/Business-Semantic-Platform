@@ -37,6 +37,8 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String(200))
     location: Mapped[str | None] = mapped_column(Text, nullable=True)
     repository: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # URL git de onde agentes remotos clonam (executor remoto); vazio = `repository`.
+    git_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     branch: Mapped[str | None] = mapped_column(String(200), nullable=True)
     commit: Mapped[str | None] = mapped_column(String(100), nullable=True)
     version: Mapped[str | None] = mapped_column(String(100), nullable=True)

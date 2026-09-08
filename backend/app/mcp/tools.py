@@ -865,6 +865,21 @@ def release_queue(client: BspClient, batch_id: str | None = None) -> Any:
     return client.post("/discovery/queue/release", {"batch_id": batch_id})
 
 
+@registry.tool(
+    "harness_agents",
+    "Executor do harness (local ou remoto) e os agentes remotos registrados: status (online, "
+    "executando, limitado, offline), pessoa, versão, tarefas concluídas, custo do dia e limite; "
+    "mais a contagem de tarefas remotas por status. No executor remoto, 'tarefa esperando sem "
+    "agente online' explica campanha parada.",
+    group="discovery",
+)
+def harness_agents(client: BspClient, include_revoked: bool = False) -> Any:
+    return {
+        "status": client.get("/harness/status"),
+        "agents": client.get("/harness/agents", include_revoked=include_revoked),
+    }
+
+
 @registry.tool("cancel_job", "Cancela um job ainda pendente (todo) da fila. Só administrador.",
                group="discovery", destructive=True)
 def cancel_job(client: BspClient, job_id: int) -> Any:
